@@ -1,0 +1,23 @@
+services:
+  backend:
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:2.5.2
+    container_name: lilac-dynamodb
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/data"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - dynamodb_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/ > /dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  dynamodb_data:

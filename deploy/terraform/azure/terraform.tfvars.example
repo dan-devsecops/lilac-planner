@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and adjust. No secrets here - the DB password is
+# generated and stored in Key Vault by Terraform.
+prefix             = "lilac"
+location           = "westeurope"
+node_count         = 2
+node_vm_size       = "Standard_B2s"
+mysql_sku          = "B_Standard_B1ms"
+
+# Required for CI/CD federation. Set to your GitHub repo (owner/name).
+enable_github_oidc = true
+github_repository  = "your-org/lilac-planner"

@@ -1,0 +1,27 @@
+services:
+  backend:
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  mariadb:
+    image: mariadb:11
+    container_name: lilac-mariadb
+    environment:
+      MARIADB_USER: ${MARIADB_USER:-planner}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-planner}
+      MARIADB_DATABASE: ${MARIADB_DB:-lilac_planner}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-rootpw}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  mariadb_data:

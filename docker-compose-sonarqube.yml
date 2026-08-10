@@ -1,0 +1,61 @@
+# Self-hosted SonarQube Community Edition (SAST + code quality), used by the
+# `backend-verify` and `frontend` CI jobs. Not part of the default dev/prod stack -
+# bring it up once on the CI runner host (or wherever CI can reach it over the network):
+#
+#   docker compose -f docker-compose-sonarqube.yml up -d
+#
+# First-run setup (one-time, manual):
+#   1. Open http://localhost:9000, log in with admin/admin, set a new password.
+#   2. Create two projects: lilac-planner-backend, lilac-planner-frontend.
+#   3. Generate a token (My Account → Security) and add it to the Forgejo repo's
+#      secrets as SONAR_TOKEN; add SONAR_HOST_URL (e.g. http://localhost:9000).
+#      Until both secrets exist, the CI Sonar steps are skipped automatically.
+#
+# Community Edition only supports PostgreSQL as its own backing store - this is
+# unrelated to PLANNER_DB and must not be reused for app data.
+#
+# Common first-run gotcha: SonarQube's embedded Elasticsearch requires
+# vm.max_map_count >= 262144 on the Docker host. Docker Desktop for Mac's VM
+# usually already satisfies this; if the container exits with a bootstrap-check
+# error, see https://docs.sonarsource.com/sonarqube/latest/setup-and-upgrade/prerequisites-and-overview/.
+#
+# Image tag: "lts-community" tracks SonarQube's latest Long-Term-Active Community
+# Edition release. Unlike the pinned versions elsewhere in this repo, a security
+# scanner benefits more from automatic patch/rule updates than from strict
+# reproducibility - bump to an exact version pin if you need deterministic builds.
+name: lilac-planner-sonarqube
+
+services:
+  sonarqube-db:
+    image: postgres:16
+    container_name: lilac-sonarqube-db
+    environment:
+      POSTGRES_USER: sonarqube
+      POSTGRES_PASSWORD: sonarqube
+      POSTGRES_DB: sonarqube
+    volumes:
+      - sonarqube_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  sonarqube:
+    image: sonarqube:lts-community
+    container_name: lilac-sonarqube
+    depends_on:
+      - sonarqube-db
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonarqube-db:5432/sonarqube
+      SONAR_JDBC_USERNAME: sonarqube
+      SONAR_JDBC_PASSWORD: sonarqube
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    restart: unless-stopped
+
+volumes:
+  sonarqube_db_data:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:

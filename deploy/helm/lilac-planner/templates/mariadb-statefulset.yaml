@@ -1,0 +1,59 @@
+{{- if eq .Values.db.mode "embedded" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "lilac.db.fullname" . }}
+  labels:
+    {{- include "lilac.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  serviceName: {{ include "lilac.db.fullname" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        {{- include "lilac.labels" . | nindent 8 }}
+        app.kubernetes.io/component: database
+    spec:
+      containers:
+        - name: mariadb
+          image: {{ .Values.db.embedded.image | quote }}
+          ports:
+            - name: mysql
+              containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: {{ include "lilac.db.secretName" . }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          livenessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.db.embedded.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.db.embedded.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.db.embedded.storage | quote }}
+{{- end }}

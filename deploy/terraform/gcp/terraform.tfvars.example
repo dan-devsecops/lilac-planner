@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and adjust. No secrets - the DB password is
+# generated and stored in Secret Manager by Terraform.
+project_id        = "my-gcp-project"
+prefix            = "lilac"
+region            = "europe-west1"
+node_count        = 1
+node_machine_type = "e2-standard-2"
+db_tier           = "db-f1-micro"
+
+enable_github_oidc = true
+github_repository  = "your-org/lilac-planner"

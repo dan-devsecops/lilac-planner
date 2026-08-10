@@ -1,0 +1,30 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: lilac-backend
+    static_configs:
+      - targets: ['backend:8090']
+    metrics_path: /actuator/prometheus
+    # /actuator/prometheus requires auth whenever AUTH_PROVIDER isn't none (see
+    # SecurityConfig#metricsFilterChain) - harmless to send even under none, where the
+    # backend permits everything and ignores these credentials.
+    basic_auth:
+      username: prometheus
+      password_file: /run/secrets/metrics_password
+
+  # Self-scrape - Prometheus always exposes its own metrics at /metrics, unauthenticated.
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Grafana's /metrics endpoint is on by default, unauthenticated, no config change needed.
+  - job_name: grafana
+    static_configs:
+      - targets: ['grafana:3000']
+
+  # No caddy job: its metrics live on the admin API, which only binds to 127.0.0.1
+  # inside caddy's own container by default - unreachable from Prometheus's separate
+  # container/network-namespace without rebinding the admin API to listen on the
+  # compose network, which would also expose its non-metrics endpoints (reconfigure,
+  # shutdown) to every other container. Not worth that trade for Caddy's own stats.

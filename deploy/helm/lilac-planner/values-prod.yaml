@@ -1,0 +1,66 @@
+# =============================================================
+#  Production override - external managed database + public ingress.
+#
+#  Usage:
+#    helm install lilac ./deploy/helm/lilac-planner -f values-prod.yaml \
+#      --set image.registry=<your-registry> \
+#      --set db.url='jdbc:mariadb://<host>:3306/lilac_planner' \
+#      --set db.existingSecret=lilac-db
+#
+#  Create the secret out-of-band so the password never lives in values/git:
+#    kubectl create secret generic lilac-db \
+#      --from-literal=MARIADB_USER=planner \
+#      --from-literal=MARIADB_PASSWORD='<strong-password>'
+# =============================================================
+
+image:
+  registry: ""            # REQUIRED: your container registry
+  pullPolicy: IfNotPresent
+
+# Authentication. Default is none; switch to native or keycloak for production.
+#
+# Native auth - supply secrets via a pre-created Secret so they never touch git/values.
+# The CD pipeline syncs it from a vault (see cd-azure.yml + keyvault.tf):
+#   kubectl create secret generic lilac-auth \
+#     --from-literal=PLANNER_JWT_SECRET="$(openssl rand -base64 48)" \
+#     --from-literal=PLANNER_ADMIN_PASSWORD='<strong-admin-password>'
+# then:
+#   --set auth.provider=native --set auth.native.existingSecret=lilac-auth \
+#   --set auth.native.admin.username=admin --set auth.native.admin.email=admin@your-domain.com
+auth:
+  provider: none
+  native:
+    existingSecret: ""    # e.g. lilac-auth (keys: PLANNER_JWT_SECRET, optional PLANNER_ADMIN_PASSWORD, MAIL_PASSWORD)
+    # resetUrl is derived from ingress.host when left empty.
+    admin:
+      username: ""        # set to enable the bootstrap admin (password comes from the Secret)
+      email: ""
+
+backend:
+  replicas: 2
+  # REQUIRED: your real public frontend URL(s) for CORS.
+  corsAllowedOrigins: "https://planner.example.com"
+
+frontend:
+  replicas: 2
+
+db:
+  mode: external
+  # REQUIRED: JDBC URL of your managed DB. Examples:
+  #   AWS RDS MariaDB   : jdbc:mariadb://db.xxxx.eu-west-1.rds.amazonaws.com:3306/lilac_planner
+  #   Azure MySQL       : jdbc:mysql://srv.mysql.database.azure.com:3306/lilac_planner?sslMode=REQUIRED
+  #   GCP Cloud SQL     : jdbc:mariadb://10.x.x.x:3306/lilac_planner
+  #   DO Managed MySQL  : jdbc:mariadb://<private-host>:25060/lilac_planner?sslMode=REQUIRED
+  url: ""
+  # Recommended: supply credentials via a pre-created Secret (keys MARIADB_USER,
+  # MARIADB_PASSWORD). If left empty the chart creates one from db.user/db.password.
+  existingSecret: ""
+
+ingress:
+  enabled: true
+  className: nginx        # match your installed ingress controller
+  host: planner.example.com
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: lilac-tls  # e.g. provisioned by cert-manager

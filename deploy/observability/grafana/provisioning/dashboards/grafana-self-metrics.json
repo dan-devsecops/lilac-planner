@@ -1,0 +1,105 @@
+{
+  "title": "Grafana Self-Metrics",
+  "uid": "grafana-self-metrics",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["lilac-planner", "self-metrics"],
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Memory (RSS)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "process_resident_memory_bytes{job=\"grafana\"}", "legendFormat": "RSS" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "CPU usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "rate(process_cpu_seconds_total{job=\"grafana\"}[5m])", "legendFormat": "CPU" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Open file descriptors",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "process_open_fds{job=\"grafana\"}", "legendFormat": "open fds" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "DB connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "grafana_database_conn_open{job=\"grafana\"}", "legendFormat": "open" },
+        { "refId": "B", "datasource": "Prometheus", "expr": "grafana_database_conn_in_use{job=\"grafana\"}", "legendFormat": "in use" },
+        { "refId": "C", "datasource": "Prometheus", "expr": "grafana_database_conn_idle{job=\"grafana\"}", "legendFormat": "idle" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "HTTP request rate by status",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "sum by (status_code) (rate(grafana_http_request_duration_seconds_count{job=\"grafana\"}[5m]))", "legendFormat": "{{status_code}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "HTTP request duration (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "histogram_quantile(0.95, sum by (le) (rate(grafana_http_request_duration_seconds_bucket{job=\"grafana\"}[5m])))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "HTTP error rate (4xx/5xx)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "sum(rate(grafana_http_request_duration_seconds_count{job=\"grafana\", status_code=~\"4..|5..\"}[5m]))", "legendFormat": "errors" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Dashboards / Datasources / Active users",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "grafana_stat_totals_dashboard{job=\"grafana\"}", "legendFormat": "dashboards" },
+        { "refId": "B", "datasource": "Prometheus", "expr": "grafana_stat_totals_datasource{job=\"grafana\"}", "legendFormat": "datasources" },
+        { "refId": "C", "datasource": "Prometheus", "expr": "sum(grafana_stat_totals_active_admins{job=\"grafana\"} + grafana_stat_totals_active_editors{job=\"grafana\"} + grafana_stat_totals_active_viewers{job=\"grafana\"})", "legendFormat": "active users" }
+      ]
+    }
+  ]
+}

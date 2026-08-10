@@ -1,0 +1,42 @@
+# Backend
+backend/target/
+backend/.idea/
+backend/*.iml
+backend/.mvn/wrapper/maven-wrapper.jar
+backend/pom.xml.versionsBackup
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+
+# E2E
+e2e/node_modules/
+e2e/playwright-report/
+e2e/test-results/
+
+# .env
+.env
+.env.local
+.env.prod
+.env.*.local
+!.env.example
+!.env.prod.example
+
+# CI/security scan artifacts
+zap-report.html
+zap.yaml
+trivy-sca-*.txt
+semgrep-report.txt
+
+# Local TLS certs (mkcert) - machine-specific, regenerate with:
+#   mkcert -install && mkcert -key-file deploy/keycloak/localhost-key.pem -cert-file deploy/keycloak/localhost.pem localhost
+deploy/keycloak/*.pem
+deploy/**/README.md
+deploy/scripts
+
+# OS
+.DS_Store
+
+.idea/

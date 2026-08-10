@@ -1,0 +1,68 @@
+{
+  "realm": "lilac-planner",
+  "enabled": true,
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "sslRequired": "none",
+  "clients": [
+    {
+      "clientId": "lilac-planner-app",
+      "name": "Lilac Planner",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://localhost:3000/*",
+        "https://localhost:8443/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://localhost:8443"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "lilac-planner-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "lilac-planner-app",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Smith",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "$(TESTUSER_PASSWORD)",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

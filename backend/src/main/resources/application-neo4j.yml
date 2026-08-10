@@ -1,0 +1,14 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
+  neo4j:
+    uri: ${NEO4J_URI:bolt://localhost:7687}
+    authentication:
+      username: ${NEO4J_USER:neo4j}
+      password: ${NEO4J_PASSWORD}
+  data:
+    neo4j:
+      database: ${NEO4J_DATABASE:neo4j}

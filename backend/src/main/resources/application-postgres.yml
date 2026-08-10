@@ -1,0 +1,23 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jReactiveDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jReactiveRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.neo4j.Neo4jAutoConfiguration
+  datasource:
+    url: ${PG_URL:jdbc:postgresql://localhost:5432/lilac_planner}
+    username: ${PG_USER:planner}
+    password: ${PG_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    locations: classpath:db/migration/postgresql
+    baseline-on-migrate: true
+    baseline-version: 1
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect

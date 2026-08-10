@@ -1,0 +1,91 @@
+# Self-contained, throwaway stack for the Playwright e2e suite (managed by
+# e2e/global-setup.js + global-teardown.js).
+#
+# Backend selection: set PLANNER_DB (mariadb | postgres | neo4j | dynamodb) and the
+# suite activates the matching Compose *profile*, so only that one database starts:
+#   PLANNER_DB=postgres npm test        # (default is mariadb)
+#
+# Isolation: its own project (lilac-planner-e2e) → own network + anonymous volumes,
+# removed on `down -v`; distinct container names (lilac-e2e-*) and host ports
+# (frontend 5174 / backend 8091) so it runs alongside a dev stack without clashing.
+# DB ports are NOT published - the backend reaches them over the internal network -
+# so e2e never collides with a dev database either. No SSO, no /api/test/reset.
+name: lilac-planner-e2e
+
+services:
+  # --- Databases (one per profile; only the selected PLANNER_DB starts) ---
+  mariadb:
+    image: mariadb:11
+    container_name: lilac-e2e-mariadb
+    profiles: ["mariadb"]
+    environment:
+      MARIADB_USER: planner
+      MARIADB_PASSWORD: planner
+      MARIADB_DATABASE: lilac_planner
+      MARIADB_ROOT_PASSWORD: rootpw
+
+  postgres:
+    image: postgres:16
+    container_name: lilac-e2e-postgres
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: planner
+      POSTGRES_PASSWORD: planner
+      POSTGRES_DB: lilac_planner
+
+  neo4j:
+    image: neo4j:5.24-community
+    container_name: lilac-e2e-neo4j
+    profiles: ["neo4j"]
+    environment:
+      NEO4J_AUTH: neo4j/password
+
+  dynamodb:
+    image: amazon/dynamodb-local:2.5.2
+    container_name: lilac-e2e-dynamodb
+    profiles: ["dynamodb"]
+
+  # --- App (always starts; connects to whichever DB the active profile brought up) ---
+  backend:
+    build:
+      context: ./backend
+    container_name: lilac-e2e-backend
+    # No depends_on - that would pull a profiled DB service in regardless of profile.
+    # The backend simply restarts until its DB is reachable; global-setup waits on
+    # /actuator/health before running the specs.
+    restart: unless-stopped
+    environment:
+      AUTH_PROVIDER: "none"
+      PLANNER_DB: ${PLANNER_DB:-mariadb}
+      # The e2e frontend is published on 5174; its mutating calls carry that Origin,
+      # so it must be allowed or Spring rejects them with "Invalid CORS request".
+      PLANNER_CORS_ALLOWED_ORIGINS: http://localhost:5174
+      # All backends are wired; only the active PLANNER_DB profile's DB service exists,
+      # and the profile-specific YAML disables the other backends' auto-config.
+      MARIADB_URL: jdbc:mariadb://mariadb:3306/lilac_planner
+      MARIADB_USER: planner
+      MARIADB_PASSWORD: planner
+      PG_URL: jdbc:postgresql://postgres:5432/lilac_planner
+      PG_USER: planner
+      PG_PASSWORD: planner
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password
+      NEO4J_DATABASE: neo4j
+      DYNAMODB_ENDPOINT: http://dynamodb:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+    ports:
+      - "8091:8090"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: lilac-e2e-frontend
+    restart: unless-stopped
+    environment:
+      AUTH_PROVIDER: "none"
+      BACKEND_URL: http://backend:8090
+    ports:
+      - "5174:8080"

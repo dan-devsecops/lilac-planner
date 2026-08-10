@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars and adjust.
+# do_token must be supplied via TF_VAR_do_token env var - never store a token in git.
+
+prefix    = "lilac"
+region    = "fra1"     # e.g. fra1 (Frankfurt), nyc3 (New York), ams3 (Amsterdam)
+
+# DOKS
+kubernetes_version_prefix = "1.30"       # run: doctl kubernetes options versions
+node_size                 = "s-2vcpu-4gb" # run: doctl kubernetes options sizes
+node_count                = 2
+
+# Database
+db_size = "db-s-1vcpu-1gb"  # run: doctl databases list-options --engine mysql
+
+# Registry
+registry_tier = "basic"      # starter | basic | professional

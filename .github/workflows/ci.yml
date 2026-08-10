@@ -1,0 +1,214 @@
+name: CI (GitHub)
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-unit:
+    name: Backend · logic & architecture
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Test business logic & architecture rules
+        working-directory: backend
+        run: mvn -B test
+
+  backend-verify:
+    name: Backend · all test layers + coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Compile production & test sources
+        working-directory: backend
+        run: mvn -B -q test-compile
+      - name: Run unit, integration & adapter-contract tests (mvn verify)
+        working-directory: backend
+        run: mvn -B verify
+      - name: Publish JaCoCo coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: backend/target/site/jacoco-merged/
+          retention-days: 14
+
+  frontend:
+    name: Frontend · tests + production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies (npm ci)
+        working-directory: frontend
+        run: npm ci
+      - name: Run vitest unit tests
+        working-directory: frontend
+        run: npm test
+      - name: Build production bundle
+        working-directory: frontend
+        run: npm run build
+
+  sca:
+    name: Security · ${{ matrix.component }} dependency (SCA) scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Trivy SCA scan - HIGH+CRITICAL dependency report (informational)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ./${{ matrix.component }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: '0'
+          output: trivy-sca-${{ matrix.component }}.txt
+      - name: Publish SCA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sca-${{ matrix.component }}
+          path: trivy-sca-${{ matrix.component }}.txt
+          retention-days: 14
+
+  semgrep:
+    name: Security · Semgrep SAST (secrets + security-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Semgrep SAST scan (security-audit + secrets, report-only)
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$(pwd):/src" semgrep/semgrep \
+            semgrep scan --config p/security-audit --config p/secrets --metrics=off /src \
+            | tee semgrep-report.txt
+      - name: Publish Semgrep report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep-report.txt
+          retention-days: 14
+
+  dast:
+    name: Security · OWASP ZAP baseline (DAST)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Bring up isolated throwaway stack (own project, own network)
+        run: docker compose --project-name lilac-planner-dast -f docker-compose-e2e.yml --profile mariadb up --build -d
+      - name: Wait for backend health
+        run: |
+          for i in $(seq 1 36); do
+            if curl -sf http://localhost:8091/actuator/health | grep -q UP; then
+              echo "Stack is healthy."
+              exit 0
+            fi
+            echo "attempt $i/36 - retrying in 5s"
+            sleep 5
+          done
+          echo "Backend did not become healthy within 3 minutes."
+          exit 1
+      - name: OWASP ZAP baseline scan (DAST, passive-only, report-only)
+        continue-on-error: true
+        run: |
+          NETWORK=$(docker network ls --filter name=lilac-planner-dast --format '{{.Name}}' | head -1)
+          docker run --rm --network "$NETWORK" \
+            -v "$(pwd):/zap/wrk/:rw" \
+            -t ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://frontend:8080 -r zap-report.html -I
+      - name: Publish DAST report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap-report.html
+          retention-days: 14
+      - name: Tear down throwaway stack
+        if: always()
+        run: docker compose --project-name lilac-planner-dast -f docker-compose-e2e.yml --profile mariadb down -v --remove-orphans
+
+  e2e:
+    name: E2E · browser flows on an isolated stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Install Playwright + Chromium
+        working-directory: e2e
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: Run browser flows
+        working-directory: e2e
+        run: npm test
+      - name: Publish Playwright report (failures only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+
+  image-scan:
+    name: Security · ${{ matrix.component }} image CVE scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build production image
+        run: docker build -t lilac-${{ matrix.component }}:ci ./${{ matrix.component }}
+      - name: Report HIGH CVEs (non-blocking)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: lilac-${{ matrix.component }}:ci
+          severity: HIGH
+          ignore-unfixed: true
+          exit-code: '0'
+      - name: Fail on CRITICAL CVEs
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: lilac-${{ matrix.component }}:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

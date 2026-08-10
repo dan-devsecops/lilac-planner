@@ -1,0 +1,196 @@
+# =============================================================
+#  Lilac Planner - default values (cloud-agnostic)
+#
+#  Defaults are tuned for a one-command DEV install:
+#    helm install lilac ./deploy/helm/lilac-planner
+#  which brings up the frontend, backend AND an in-cluster MariaDB.
+#
+#  For PRODUCTION, point at a managed database instead:
+#    helm install lilac ./deploy/helm/lilac-planner -f values-prod.yaml
+# =============================================================
+
+# Override the generated resource name prefix (defaults to the release name).
+nameOverride: ""
+fullnameOverride: ""
+
+# -------------------------------------------------------------
+# Container images. Push your built images to ANY registry
+# (ECR / ACR / GCR / Docker Hub / Harbor) and set these.
+# See deploy/build-images.sh.
+# -------------------------------------------------------------
+image:
+  # e.g. 123456789.dkr.ecr.eu-west-1.amazonaws.com  or  myacr.azurecr.io  or  docker.io/myuser
+  registry: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []   # e.g. [{ name: regcred }]
+
+backend:
+  image:
+    repository: lilac-planner-backend
+    tag: latest
+  replicas: 1
+  # Horizontal Pod Autoscaler (backend is stateless, so it scales freely).
+  # When enabled, replicas is ignored and the HPA manages the count.
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  # Storage profile: mariadb | postgres | neo4j | dynamodb. Keep mariadb for the
+  # portable SQL path. Postgres works too (set db.* + a postgres URL).
+  plannerDb: mariadb
+  # Comma-separated list of allowed frontend origins for CORS. Set to your real
+  # public URL in production, e.g. https://planner.example.com
+  corsAllowedOrigins: "http://localhost:5173,http://localhost:3000"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # Extra raw env vars if you need them, e.g. JAVA_OPTS.
+  extraEnv: []
+
+frontend:
+  image:
+    repository: lilac-planner-frontend
+    tag: latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+# -------------------------------------------------------------
+# Authentication
+#   provider: keycloak | native | none
+#     none     -> no auth, shared "dev" user (default; safe for a first install)
+#     keycloak -> validate Keycloak JWTs (set auth.keycloak.jwkSetUri)
+#     native   -> local username+password; requires a signing secret (see below)
+# -------------------------------------------------------------
+auth:
+  provider: none
+
+  keycloak:
+    # JWK endpoint used to validate Keycloak-issued tokens (cluster-internal URL is fine).
+    jwkSetUri: ""
+    # Expected `iss` claim - the realm URL as the BROWSER reaches it
+    # (e.g. https://sso.example.com/realms/lilac-planner). May differ from the jwkSetUri host.
+    issuer: ""
+    # Client id that must be present in the token's `aud` claim (requires the realm's
+    # audience protocol mapper - see config/keycloak/realm-lilac-planner.json).
+    audience: "lilac-planner-app"
+
+  native:
+    # HS256 signing secret (>= 32 bytes). Either set it here (chart creates a Secret)
+    # or, recommended for prod, supply it via existingSecret (synced from a vault).
+    jwtSecret: ""
+    # A pre-created Secret with key PLANNER_JWT_SECRET (and optionally
+    # PLANNER_ADMIN_PASSWORD, MAIL_PASSWORD). When set, the chart creates no auth Secret.
+    existingSecret: ""
+    accessTtl: PT15M
+    refreshTtl: P7D
+    resetTtl: PT1H
+    # Base URL for the emailed reset link. Empty → derived from ingress.host
+    # (https://<host>/reset-password), else falls back to localhost.
+    resetUrl: ""
+    signupEnabled: true
+    # Bootstrap ADMIN created at first startup (Keycloak-style). Leave username blank
+    # to fall back to first-registrant-becomes-admin. The password is sensitive -
+    # put it in the auth Secret (jwtSecret path) or existingSecret under PLANNER_ADMIN_PASSWORD.
+    admin:
+      username: ""
+      email: ""
+      password: ""
+    # SMTP for reset emails. Blank host → the reset link is logged instead of sent.
+    mail:
+      host: ""
+      port: 587
+      username: ""
+      password: ""
+
+# -------------------------------------------------------------
+# Database
+#   mode: embedded  -> chart deploys an in-cluster MariaDB (StatefulSet + PVC).
+#                      Great for dev / demos. One install, fully self-contained.
+#   mode: external  -> chart deploys NO database. The backend connects to a
+#                      managed DB (RDS / Azure Database / Cloud SQL) using the
+#                      url/credentials below (or an existing Secret).
+# -------------------------------------------------------------
+db:
+  mode: embedded          # embedded | external
+
+  # Logical DB/user/password used by BOTH modes. In embedded mode these
+  # initialise the in-cluster MariaDB; in external mode they (or existingSecret)
+  # are what the backend authenticates with.
+  name: lilac_planner
+  user: planner
+  password: planner       # CHANGE THIS. Or use an existing secret (below).
+  rootPassword: rootpw     # embedded mode only.
+
+  # JDBC URL. Leave empty in embedded mode (auto-derived from the in-cluster
+  # service). REQUIRED in external mode, e.g.
+  #   jdbc:mariadb://mydb.xxxx.eu-west-1.rds.amazonaws.com:3306/lilac_planner
+  #   jdbc:mysql://myserver.mysql.database.azure.com:3306/lilac_planner?sslMode=REQUIRED
+  url: ""
+
+  # Reference an existing Secret instead of letting the chart create one.
+  # The secret must contain keys: MARIADB_USER, MARIADB_PASSWORD (and optionally
+  # MARIADB_URL). Recommended for production (sync from Vault/Key Vault/Secrets Mgr).
+  existingSecret: ""
+
+  # Settings for the in-cluster MariaDB (db.mode=embedded only).
+  embedded:
+    image: mariadb:11
+    storage: 5Gi
+    storageClassName: ""   # "" = cluster default StorageClass
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+# -------------------------------------------------------------
+# Ingress - the single public entrypoint. Routes everything to the frontend,
+# which proxies /api to the backend internally. Works with any ingress
+# controller (ingress-nginx, AGIC, GKE, Traefik...).
+# -------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""            # e.g. nginx
+  host: ""                 # e.g. planner.example.com
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""         # TLS secret (e.g. created by cert-manager)
+
+# Service type for the frontend when ingress is disabled. Use LoadBalancer to
+# get a cloud LB directly, or ClusterIP + `kubectl port-forward` for local.
+service:
+  frontend:
+    type: ClusterIP
+    port: 80
+
+# -------------------------------------------------------------
+# Observability. The backend exposes Prometheus metrics at
+# /actuator/prometheus. Enable serviceMonitor if the Prometheus Operator
+# (kube-prometheus-stack) is installed; otherwise scrape via podAnnotations.
+# -------------------------------------------------------------
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    # Extra labels so your Prometheus' serviceMonitorSelector picks this up,
+    # e.g. { release: kube-prometheus-stack }
+    labels: {}
+
+# Optional pod scheduling controls.
+nodeSelector: {}
+tolerations: []
+affinity: {}

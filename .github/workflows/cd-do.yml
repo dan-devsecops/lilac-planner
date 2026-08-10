@@ -1,0 +1,206 @@
+name: CD (GitHub)
+
+on:
+  workflow_run:
+    workflows: ["CI (GitHub)"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy (12-char commit SHA). Empty = build & deploy the latest commit on main."
+        required: false
+        default: ""
+
+concurrency:
+  group: cd-prod-do
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY_SERVER: ghcr.io/${{ github.repository_owner }}
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  build:
+    name: Build & push ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >
+      inputs.tag == '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build image
+        run: |
+          set -euo pipefail
+          TAG="${DEPLOY_SHA::12}"
+          docker build -t "$REGISTRY_SERVER/lilac-planner-${{ matrix.component }}:$TAG" \
+                       -t "$REGISTRY_SERVER/lilac-planner-${{ matrix.component }}:latest" \
+                       "./${{ matrix.component }}"
+
+      - name: Push image
+        run: |
+          set -euo pipefail
+          TAG="${DEPLOY_SHA::12}"
+          docker push "$REGISTRY_SERVER/lilac-planner-${{ matrix.component }}:$TAG"
+          docker push "$REGISTRY_SERVER/lilac-planner-${{ matrix.component }}:latest"
+
+  deploy:
+    name: Deploy & verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    if: >
+      always() && !cancelled() &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    environment: production
+    env:
+      DROPLET_IP: ${{ secrets.DROPLET_IP }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Resolve image tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-${DEPLOY_SHA::12}}"
+          echo "DEPLOY_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "Deploying image tag: $TAG"
+
+      - name: Set up SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DROPLET_SSH_HOST_KEY: ${{ secrets.DROPLET_SSH_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null /tmp/deploy_key
+          echo "$SSH_PRIVATE_KEY" | base64 -d > /tmp/deploy_key
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$DROPLET_SSH_HOST_KEY" >> ~/.ssh/known_hosts
+          echo "ssh_cmd=ssh -i /tmp/deploy_key -o BatchMode=yes root@$DROPLET_IP" >> "$GITHUB_ENV"
+
+      - name: Copy compose config to Droplet
+        run: |
+          set -euo pipefail
+          scp -i /tmp/deploy_key \
+              docker-compose.prod.yml Caddyfile \
+              root@"$DROPLET_IP":/opt/lilac-planner/
+          $ssh_cmd "mkdir -p /opt/lilac-planner/deploy"
+          scp -i /tmp/deploy_key -r \
+              deploy/observability \
+              root@"$DROPLET_IP":/opt/lilac-planner/deploy/
+
+      - name: Pull images on Droplet
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          $ssh_cmd << EOF
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+          cd /opt/lilac-planner
+          IMAGE_TAG=$DEPLOY_TAG docker compose -f docker-compose.prod.yml --env-file .env.prod pull --quiet
+          EOF
+
+      - name: Restart stack (staged, health-gated)
+        run: |
+          set -euo pipefail
+          $ssh_cmd "IMAGE_TAG=$DEPLOY_TAG bash -s" << 'EOF'
+          set -euo pipefail
+          cd /opt/lilac-planner
+          export IMAGE_TAG
+          compose="docker compose -f docker-compose.prod.yml --env-file .env.prod"
+          $compose up -d mariadb caddy loki
+          $compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile < /dev/null || true
+          $compose up -d --no-deps --wait --wait-timeout 180 backend
+          $compose up -d --remove-orphans
+          $compose restart prometheus < /dev/null
+          EOF
+
+      - name: Verify backend health
+        run: |
+          set -euo pipefail
+          $ssh_cmd << 'EOF'
+          set -euo pipefail
+          for i in $(seq 1 24); do
+            if curl -sf http://localhost:8090/actuator/health | grep -q UP; then
+              echo "Deployment verified."
+              exit 0
+            fi
+            echo "  attempt $i/24 - not ready yet, retrying in 5s"
+            sleep 5
+          done
+          echo "Backend did not become healthy within 2 minutes."
+          exit 1
+          EOF
+
+      - name: Public smoke check
+        run: |
+          set -euo pipefail
+          DOMAIN=$($ssh_cmd "grep -E '^DOMAIN=' /opt/lilac-planner/.env.prod | cut -d= -f2-")
+          echo "Checking https://$DOMAIN from outside..."
+          curl -sf --max-time 15 -o /dev/null "https://$DOMAIN"
+          echo "https://$DOMAIN is serving."
+
+      - name: Record deployed tag (for prune tracking)
+        run: $ssh_cmd "echo $DEPLOY_TAG >> /opt/lilac-planner/.deployed-tags.log"
+
+      - name: Prune old images on droplet (keep last 5 deploys)
+        run: |
+          set -euo pipefail
+          $ssh_cmd "REGISTRY_SERVER=$REGISTRY_SERVER bash -s" << 'EOF'
+          set -euo pipefail
+          KEEP=5
+          LOG=/opt/lilac-planner/.deployed-tags.log
+          touch "$LOG"
+          mapfile -t TAGS < <(awk '!seen[$0]++' "$LOG")
+          COUNT=${#TAGS[@]}
+          if [ "$COUNT" -gt "$KEEP" ]; then
+            PRUNE_COUNT=$((COUNT - KEEP))
+            for ((i = 0; i < PRUNE_COUNT; i++)); do
+              tag="${TAGS[$i]}"
+              for repo in "$REGISTRY_SERVER/lilac-planner-backend" "$REGISTRY_SERVER/lilac-planner-frontend"; do
+                echo "Removing old image: $repo:$tag"
+                docker rmi "$repo:$tag" || true
+              done
+            done
+            printf '%s\n' "${TAGS[@]:$PRUNE_COUNT}" > "$LOG"
+          fi
+          docker image prune -f
+          EOF
+
+      - name: Show stack status
+        if: always()
+        run: |
+          set -euo pipefail
+          $ssh_cmd << 'EOF'
+          cd /opt/lilac-planner
+          docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+          echo "--- recent backend logs:"
+          docker logs --tail 20 lilac-backend 2>&1 || true
+          EOF
+
+      - name: Remove SSH key
+        if: always()
+        run: rm -f /tmp/deploy_key

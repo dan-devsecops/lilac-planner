@@ -1,0 +1,37 @@
+{{- if .Values.ingress.enabled }}
+{{- if not .Values.ingress.host }}
+{{- fail "ingress.enabled=true requires ingress.host" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "lilac.fullname" . }}
+  labels:
+    {{- include "lilac.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ required "ingress.tls.secretName is required when ingress.tls.enabled=true" .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # All traffic goes to the frontend; nginx proxies /api to the backend.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "lilac.frontend.fullname" . }}
+                port:
+                  number: {{ .Values.service.frontend.port }}
+{{- end }}

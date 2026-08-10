@@ -1,0 +1,147 @@
+# =============================================================
+#  THE ONE LINE THAT SWITCHES STORAGE BACKEND
+#
+#  Pick one of: neo4j | postgres | mariadb | dynamodb
+#  (env override: SPRING_PROFILES_ACTIVE=postgres mvn spring-boot:run,
+#   or PLANNER_DB=postgres)
+# =============================================================
+spring:
+  profiles:
+    active: ${PLANNER_DB:mariadb}
+  application:
+    name: lilac-planner
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # JWK endpoint used to validate token signatures (keycloak provider).
+          # Backend uses plain HTTP to reach Keycloak directly (Docker internal network, bypassing the TLS sidecar).
+          # Override: KEYCLOAK_JWK_SET_URI=http://keycloak:8091/realms/lilac-planner/protocol/openid-connect/certs
+          # Local dev without Docker: use https://localhost:8443/realms/lilac-planner/protocol/openid-connect/certs
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8080/realms/lilac-planner/protocol/openid-connect/certs}
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USER:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+server:
+  port: 8090
+  tomcat:
+    # Off by default (small JMX registration cost at startup). Needed for the
+    # tomcat_threads_*/tomcat_global_* metrics (thread-pool utilization, global
+    # request processor) - tomcat_sessions_* metrics come from a different
+    # binding and are exported either way.
+    mbeanregistry:
+      enabled: true
+
+# Expose a lightweight liveness/readiness endpoint for cloud load balancers
+# (ALB target group, Azure Container Apps health probe, ECS healthCheck).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    # Mail availability must not gate app health
+    mail:
+      enabled: false
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+planner:
+  mail:
+    # Log the full password-reset link (raw token!) when SMTP is absent or the send fails.
+    log-reset-links: ${PLANNER_MAIL_LOG_RESET_LINKS:false}
+  auth:
+    # Authentication provider: keycloak (SSO, default) | native (local username+password) | none (dev, no auth).
+    provider: ${AUTH_PROVIDER:}
+    enabled: ${AUTH_ENABLED:true}
+    keycloak:
+      # Expected `iss` claim of Keycloak tokens - the URL the BROWSER uses to reach
+      # Keycloak (in Docker this differs from the internal jwk-set-uri host above).
+      issuer: ${KEYCLOAK_ISSUER:http://localhost:8080/realms/lilac-planner}
+      # Client id that must be present in the token's `aud` claim. Requires the realm's
+      # audience protocol mapper (see config/keycloak/realm-lilac-planner.json).
+      audience: ${KEYCLOAK_AUDIENCE:lilac-planner-app}
+    native:
+      # HS256 signing secret - REQUIRED in native mode, must be >= 32 bytes
+      jwt-secret: ${PLANNER_JWT_SECRET:}
+      access-ttl: ${PLANNER_ACCESS_TTL:PT15M}
+      refresh-ttl: ${PLANNER_REFRESH_TTL:P7D}
+      reset-ttl: ${PLANNER_RESET_TTL:PT1H}
+      # Base URL the emailed reset link points at (the SPA reset page).
+      reset-url: ${PLANNER_RESET_URL:http://localhost:5173/reset-password}
+      signup-enabled: ${PLANNER_SIGNUP_ENABLED:true}
+      # Optional bootstrap ADMIN (Keycloak-style). When username+password are set and no admin
+      # exists yet, it is created at startup. Leave blank to fall back to first-user-becomes-admin.
+      admin:
+        username: ${PLANNER_ADMIN_USERNAME:}
+        password: ${PLANNER_ADMIN_PASSWORD:}
+        email: ${PLANNER_ADMIN_EMAIL:}
+  mobile:
+    # Kill switch for the mobile app, which cannot be force-updated. GET /api/v1/meta exposes
+    # both values publicly; the app compares its own version against min-supported and shows a
+    # forced-upgrade screen if below it.
+    min-supported-app-version: ${PLANNER_MOBILE_MIN_VERSION:1.0.0}
+    latest-app-version: ${PLANNER_MOBILE_LATEST_VERSION:1.0.0}
+  cors:
+    # Comma-separated list. In the cloud set PLANNER_CORS_ALLOWED_ORIGINS to your
+    # real frontend URL(s), e.g. https://planner.example.com
+    allowed-origins: ${PLANNER_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+  metrics:
+    # Basic Auth credential for Prometheus scraping /actuator/prometheus (see SecurityConfig#
+    # metricsFilterChain) - separate from user auth, since Prometheus can't hold a JWT.
+    # Password is required whenever AUTH_PROVIDER isn't none; username isn't secret, so it
+    # defaults to "prometheus" (matches deploy/observability/prometheus.yml's scrape config).
+    username: ${PLANNER_METRICS_USERNAME:prometheus}
+    password: ${PLANNER_METRICS_PASSWORD:}
+  stickers:
+    threshold-step: 10
+    base-threshold: 20
+  push:
+    # Task-alarm push notifications. Absent VAPID keys/subject ⇒ WebPushSender
+    # no-ops (web push silently disabled); no crash. Generate a keypair once via:
+    # npx web-push generate-vapid-keys
+    vapid:
+      public-key: ${PLANNER_VAPID_PUBLIC_KEY:}
+      private-key: ${PLANNER_VAPID_PRIVATE_KEY:}
+      subject: ${PLANNER_VAPID_SUBJECT:}
+    expo:
+      # Optional bearer token for Expo's push API (raises rate limits); unauthenticated
+      # requests work without it.
+      access-token: ${EXPO_ACCESS_TOKEN:}
+    # How often PushAlarmDispatchService polls for opened alarm windows.
+    alarm-poll-interval: ${PLANNER_PUSH_ALARM_POLL_INTERVAL:PT30S}
+    # Fallback timezone for users without one set (User.timezone is nullable).
+    default-timezone: ${PLANNER_DEFAULT_TIMEZONE:UTC}
+    # How long an AlarmDispatch dedup row survives after its date before AlarmDispatchCleanupService
+    # (JPA/Neo4j) or the DynamoDB item's native TTL attribute purges it. Keep at 2+: below that,
+    # the safety margin over the worst-case timezone skew PushAlarmDispatchService can reach
+    # narrows to nothing (see AlarmDispatchCleanupService's javadoc).
+    alarm-dispatch-retention-days: ${PLANNER_ALARM_DISPATCH_RETENTION_DAYS:7}
+  rate-limit:
+    # Max requests per IP per minute for auth endpoints (native provider only).
+    login-per-minute: 5
+    register-per-minute: 3
+    forgot-per-minute: 3
+    # Comma-separated list of reverse-proxy IPs whose X-Forwarded-For header is trusted.
+    # Empty (default) ⇒ the header is ignored (it is client-spoofable) and the TCP peer
+    # address keys the rate-limit buckets.
+    trusted-proxies: ${PLANNER_RATELIMIT_TRUSTED_PROXIES:}

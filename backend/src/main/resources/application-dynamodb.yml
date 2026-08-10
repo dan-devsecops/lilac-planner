@@ -1,0 +1,18 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jReactiveDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jReactiveRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.neo4j.Neo4jAutoConfiguration
+
+planner:
+  dynamodb:
+    endpoint: ${DYNAMODB_ENDPOINT:http://localhost:8000}
+    region:   ${AWS_REGION:us-east-1}
+    access-key: ${AWS_ACCESS_KEY_ID:dummy}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:dummy}

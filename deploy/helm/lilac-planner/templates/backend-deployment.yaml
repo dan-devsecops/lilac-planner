@@ -1,0 +1,152 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lilac.backend.fullname" . }}
+  labels:
+    {{- include "lilac.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        {{- include "lilac.labels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: backend
+          image: "{{ include "lilac.imagePrefix" . }}{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8090
+          env:
+            - name: PLANNER_DB
+              value: {{ .Values.backend.plannerDb | quote }}
+            - name: PLANNER_CORS_ALLOWED_ORIGINS
+              value: {{ .Values.backend.corsAllowedOrigins | quote }}
+            - name: AUTH_PROVIDER
+              value: {{ .Values.auth.provider | quote }}
+            {{- if eq .Values.auth.provider "keycloak" }}
+            - name: KEYCLOAK_JWK_SET_URI
+              value: {{ required "auth.keycloak.jwkSetUri is required when auth.provider=keycloak" .Values.auth.keycloak.jwkSetUri | quote }}
+            - name: KEYCLOAK_ISSUER
+              value: {{ required "auth.keycloak.issuer is required when auth.provider=keycloak (the browser-facing realm URL - the token's iss claim)" .Values.auth.keycloak.issuer | quote }}
+            - name: KEYCLOAK_AUDIENCE
+              value: {{ .Values.auth.keycloak.audience | quote }}
+            {{- end }}
+            {{- if eq .Values.auth.provider "native" }}
+            - name: PLANNER_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lilac.auth.secretName" . }}
+                  key: PLANNER_JWT_SECRET
+            - name: PLANNER_ACCESS_TTL
+              value: {{ .Values.auth.native.accessTtl | quote }}
+            - name: PLANNER_REFRESH_TTL
+              value: {{ .Values.auth.native.refreshTtl | quote }}
+            - name: PLANNER_RESET_TTL
+              value: {{ .Values.auth.native.resetTtl | quote }}
+            - name: PLANNER_RESET_URL
+              value: {{ include "lilac.auth.resetUrl" . | quote }}
+            - name: PLANNER_SIGNUP_ENABLED
+              value: {{ .Values.auth.native.signupEnabled | quote }}
+            {{- if .Values.auth.native.admin.username }}
+            - name: PLANNER_ADMIN_USERNAME
+              value: {{ .Values.auth.native.admin.username | quote }}
+            - name: PLANNER_ADMIN_EMAIL
+              value: {{ .Values.auth.native.admin.email | quote }}
+            - name: PLANNER_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lilac.auth.secretName" . }}
+                  key: PLANNER_ADMIN_PASSWORD
+                  optional: true
+            {{- end }}
+            {{- if .Values.auth.native.mail.host }}
+            - name: MAIL_HOST
+              value: {{ .Values.auth.native.mail.host | quote }}
+            - name: MAIL_PORT
+              value: {{ .Values.auth.native.mail.port | quote }}
+            - name: MAIL_USER
+              value: {{ .Values.auth.native.mail.username | quote }}
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lilac.auth.secretName" . }}
+                  key: MAIL_PASSWORD
+                  optional: true
+            {{- end }}
+            {{- end }}
+            - name: MARIADB_URL
+              {{- if eq .Values.db.mode "embedded" }}
+              value: {{ include "lilac.db.url" . | quote }}
+              {{- else if .Values.db.url }}
+              value: {{ .Values.db.url | quote }}
+              {{- else if .Values.db.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lilac.db.secretName" . }}
+                  key: MARIADB_URL
+              {{- else }}
+              {{- fail "db.mode=external requires either db.url or db.existingSecret containing a MARIADB_URL key" }}
+              {{- end }}
+            - name: MARIADB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lilac.db.secretName" . }}
+                  key: MARIADB_USER
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lilac.db.secretName" . }}
+                  key: MARIADB_PASSWORD
+            {{- with .Values.backend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 30
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

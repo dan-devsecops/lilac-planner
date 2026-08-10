@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: default
+    folder: Lilac Planner
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards

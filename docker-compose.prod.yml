@@ -1,0 +1,190 @@
+# Production stack - uses prebuilt images from DOCR, no local build needed.
+# Requires a .env.prod file on the Droplet (see .env.prod.example).
+#
+# Start: docker compose -f docker-compose.prod.yml up -d
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: lilac-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+    # every service below gets an explicit mem_limit so one runaway
+    # container can't OOM-kill an unrelated one. Sized a bit above each service's
+    # steady-state RSS from `docker stats`; sum of all limits is kept well under
+    # total RAM so the host OS and dockerd always keep headroom even if every
+    # container hits its ceiling at once.
+    mem_limit: 48m
+    restart: unless-stopped
+
+  backend:
+    # IMAGE_TAG is the 12-char commit SHA injected by the CD pipeline -
+    # immutable deploys, one-click rollback. Falls back to latest so a
+    # manual `docker compose up` on the droplet still works.
+    image: ${REGISTRY_SERVER}/lilac-planner-backend:${IMAGE_TAG:-latest}
+    container_name: lilac-backend
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      # Auth: keycloak | native | none. Defaults to none; set AUTH_PROVIDER in .env.prod to switch.
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-none}
+      # Native auth - only consumed when AUTH_PROVIDER=native (startup fails if the secret is missing).
+      PLANNER_JWT_SECRET: ${PLANNER_JWT_SECRET:-}
+      PLANNER_RESET_URL: https://${DOMAIN}/reset-password
+      # Bootstrap ADMIN created at first startup (avoids the public "first registrant wins" race).
+      PLANNER_ADMIN_USERNAME: ${PLANNER_ADMIN_USERNAME:-}
+      PLANNER_ADMIN_PASSWORD: ${PLANNER_ADMIN_PASSWORD:-}
+      PLANNER_ADMIN_EMAIL: ${PLANNER_ADMIN_EMAIL:-}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      PLANNER_DB: mariadb
+      MARIADB_URL: jdbc:mariadb://mariadb:3306/${MARIADB_DB:-lilac_planner}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+      PLANNER_CORS_ALLOWED_ORIGINS: https://${DOMAIN}
+      # Push notifications (task alarms) - blank VAPID keys ⇒ web push no-ops, no crash.
+      PLANNER_VAPID_PUBLIC_KEY: ${PLANNER_VAPID_PUBLIC_KEY:-}
+      PLANNER_VAPID_PRIVATE_KEY: ${PLANNER_VAPID_PRIVATE_KEY:-}
+      PLANNER_VAPID_SUBJECT: ${PLANNER_VAPID_SUBJECT:-}
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+      # Prometheus authenticates to /actuator/prometheus with this - it can't hold a JWT.
+      # Username defaults to "prometheus" in the app itself; only the password is a secret.
+      PLANNER_METRICS_PASSWORD: ${PLANNER_METRICS_PASSWORD:?PLANNER_METRICS_PASSWORD must be set in .env.prod}
+    # Java is cgroup-aware (JDK 21) and defaults to 25% of the container's
+    # memory limit as heap - capping the container is enough, no -Xmx needed.
+    mem_limit: 300m
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    # Lets the CD pipeline gate the staged restart (compose up --wait) on real
+    # readiness, shrinking the window where the API is unavailable.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 15s
+    restart: unless-stopped
+    # Requires the `loki` Docker logging driver plugin installed on the Droplet first
+    # (see deploy/scripts/install-loki-docker-driver.sh) - ships this container's own
+    # logs to Loki for search in Grafana, alongside the metrics above.
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://localhost:3100/loki/api/v1/push"
+        loki-retries: "3"
+        loki-batch-size: "400"
+
+  frontend:
+    image: ${REGISTRY_SERVER}/lilac-planner-frontend:${IMAGE_TAG:-latest}
+    container_name: lilac-frontend
+    environment:
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-none}
+      BACKEND_URL: http://backend:8090
+    mem_limit: 24m
+    depends_on:
+      - backend
+    restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://localhost:3100/loki/api/v1/push"
+        loki-retries: "3"
+        loki-batch-size: "400"
+
+  mariadb:
+    image: mariadb:11
+    container_name: lilac-mariadb
+    environment:
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_DB:-lilac_planner}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    mem_limit: 192m
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # Loopback-only: scraped by grafana over the internal compose network, never
+  # routed through Caddy. Prometheus ships with no auth of its own, so it must
+  # not get a public route - the 127.0.0.1 bind is only an SSH-tunnel escape
+  # hatch for an operator, same reasoning as the backend's direct port above.
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: lilac-prometheus
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Named volume, not the container's own ephemeral filesystem - the container
+      # gets recreated on most deploys, and without this the TSDB (metrics history)
+      # would reset to empty every time. Survives container recreation, NOT droplet
+      # loss - same exposure as mariadb_data, no separate backup story either.
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    secrets:
+      - metrics_password
+    mem_limit: 96m
+    restart: unless-stopped
+
+  # Public, via the grafana.${DOMAIN} Caddy block - GRAFANA_ADMIN_PASSWORD is
+  # required (no default) since this is reachable from the open internet.
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: lilac-grafana
+    depends_on:
+      - prometheus
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env.prod}
+      GF_SERVER_ROOT_URL: https://grafana.${DOMAIN}
+      GF_SERVER_DOMAIN: grafana.${DOMAIN}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    mem_limit: 96m
+    restart: unless-stopped
+
+  # Loopback-only, same reasoning as prometheus above - no auth of its own, never
+  # routed through Caddy. Grafana queries it over the internal compose network;
+  # backend/frontend push logs to it via the loki Docker logging driver (a host
+  # plugin, not a container - see deploy/scripts/install-loki-docker-driver.sh).
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: lilac-loki
+    volumes:
+      - ./deploy/observability/loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    command: -config.file=/etc/loki/config.yaml
+    mem_limit: 96m
+    restart: unless-stopped
+
+volumes:
+  mariadb_data:
+  caddy_data:
+  caddy_config:
+  grafana_data:
+  prometheus_data:
+  loki_data:
+
+secrets:
+  # Populated from the PLANNER_METRICS_PASSWORD env var at container start - never
+  # written to disk in git or in an image layer, just an in-memory file the prometheus
+  # container reads via password_file (see deploy/observability/prometheus.yml).
+  metrics_password:
+    environment: "PLANNER_METRICS_PASSWORD"

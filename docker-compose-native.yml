@@ -1,0 +1,35 @@
+# Native auth (local username + password) - mutually exclusive with Keycloak SSO.
+# Add to COMPOSE_FILE instead of docker-compose-keycloak.yml, e.g.:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose-mariadb.yml:docker-compose-native.yml:docker-compose-observability.yml
+#
+# Needs no extra container - it just flips the provider and supplies the signing
+# secret (and optional SMTP). The first user to register becomes ADMIN.
+services:
+  backend:
+    environment:
+      AUTH_PROVIDER: "native"
+      # REQUIRED: HS256 signing secret, >= 32 bytes. Generate: openssl rand -base64 48
+      PLANNER_JWT_SECRET: ${PLANNER_JWT_SECRET:?set PLANNER_JWT_SECRET in .env (>=32 bytes)}
+      PLANNER_ACCESS_TTL: ${PLANNER_ACCESS_TTL:-PT15M}
+      PLANNER_REFRESH_TTL: ${PLANNER_REFRESH_TTL:-P7D}
+      PLANNER_RESET_TTL: ${PLANNER_RESET_TTL:-PT1H}
+      PLANNER_RESET_URL: ${PLANNER_RESET_URL:-http://localhost:5173/reset-password}
+      PLANNER_SIGNUP_ENABLED: ${PLANNER_SIGNUP_ENABLED:-true}
+      # Optional bootstrap ADMIN (Keycloak-style). Leave blank → first registrant becomes admin.
+      PLANNER_ADMIN_USERNAME: ${PLANNER_ADMIN_USERNAME:-}
+      PLANNER_ADMIN_PASSWORD: ${PLANNER_ADMIN_PASSWORD:-}
+      PLANNER_ADMIN_EMAIL: ${PLANNER_ADMIN_EMAIL:-}
+      # Optional SMTP - when MAIL_HOST is blank the reset link is not sent; this dev
+      # stack opts in to logging it instead (DEV ONLY - the link contains the raw token).
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      PLANNER_MAIL_LOG_RESET_LINKS: ${PLANNER_MAIL_LOG_RESET_LINKS:-true}
+      # Required whenever auth isn't none - Prometheus authenticates to
+      # /actuator/prometheus with this instead of a user JWT (it can't hold one).
+      PLANNER_METRICS_PASSWORD: ${PLANNER_METRICS_PASSWORD:?set PLANNER_METRICS_PASSWORD in .env}
+
+  frontend:
+    environment:
+      AUTH_PROVIDER: "native"

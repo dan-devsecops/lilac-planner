@@ -1,0 +1,18 @@
+{{- if eq .Values.db.mode "embedded" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lilac.db.fullname" . }}
+  labels:
+    {{- include "lilac.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: database
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+{{- end }}

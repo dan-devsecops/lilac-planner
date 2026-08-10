@@ -1,0 +1,24 @@
+Lilac Planner ({{ .Release.Name }}) deployed.
+
+Database mode: {{ .Values.db.mode }}
+{{- if eq .Values.db.mode "embedded" }}
+  In-cluster MariaDB: {{ include "lilac.db.fullname" . }}:3306 (PVC-backed, {{ .Values.db.embedded.storage }})
+{{- else }}
+  External DB URL: {{ .Values.db.url | default "(from existingSecret MARIADB_URL)" }}
+{{- end }}
+
+Check rollout:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+Reach the app:
+{{- if .Values.ingress.enabled }}
+  http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+{{- else if eq .Values.service.frontend.type "LoadBalancer" }}
+  kubectl get svc {{ include "lilac.frontend.fullname" . }}   # use the EXTERNAL-IP
+{{- else }}
+  kubectl port-forward svc/{{ include "lilac.frontend.fullname" . }} 8080:{{ .Values.service.frontend.port }}
+  then open http://localhost:8080
+{{- end }}
+
+Backend health (from inside the cluster):
+  kubectl exec deploy/{{ include "lilac.backend.fullname" . }} -- wget -qO- http://localhost:8080/actuator/health

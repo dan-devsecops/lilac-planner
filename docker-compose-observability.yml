@@ -1,0 +1,69 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: lilac-prometheus
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    secrets:
+      - metrics_password
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: lilac-grafana
+    depends_on:
+      - prometheus
+      - loki
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: lilac-loki
+    volumes:
+      - ./deploy/observability/loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/config.yaml
+    restart: unless-stopped
+
+  # Ships this container's own logs to Loki - requires the `loki` Docker logging
+  # driver plugin installed on the host first (see
+  # deploy/scripts/install-loki-docker-driver.sh). Overrides just the `logging`
+  # key on the services already defined in docker-compose.yml.
+  backend:
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://localhost:3100/loki/api/v1/push"
+        loki-retries: "3"
+        loki-batch-size: "400"
+
+  frontend:
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://localhost:3100/loki/api/v1/push"
+        loki-retries: "3"
+        loki-batch-size: "400"
+
+volumes:
+  grafana_data:
+  prometheus_data:
+  loki_data:
+
+secrets:
+  # Populated from PLANNER_METRICS_PASSWORD in .env - see docker-compose.prod.yml for
+  # the full rationale (same mechanism, dev credential instead of a real secret).
+  metrics_password:
+    environment: "PLANNER_METRICS_PASSWORD"

@@ -1,0 +1,71 @@
+# Core services - backend and frontend.
+# Select a database and additional services via COMPOSE_FILE in .env.
+#
+# Default stack (set in .env):
+#   COMPOSE_FILE=docker-compose.yml:docker-compose-mariadb.yml:docker-compose-keycloak.yml:docker-compose-observability.yml
+#
+# Switch database by changing COMPOSE_FILE and PLANNER_DB, e.g. for Neo4j:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose-neo4j.yml:docker-compose-keycloak.yml:docker-compose-observability.yml
+#   PLANNER_DB=neo4j
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: lilac-backend
+    environment:
+      AUTH_ENABLED: "false"
+      PLANNER_DB: ${PLANNER_DB:-mariadb}
+
+      # Keycloak - JWK endpoint for JWT signature validation (Docker internal network).
+      # Unused when AUTH_ENABLED=false; overridden by docker-compose-keycloak.yml when SSO is on.
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/lilac-planner/protocol/openid-connect/certs
+      # Expected `iss` claim - the URL the BROWSER uses for Keycloak (host-mapped port),
+      # not the internal hostname above. Audience = the SPA client id (must be in `aud`).
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/lilac-planner
+      KEYCLOAK_AUDIENCE: lilac-planner-app
+
+      # Neo4j (used when PLANNER_DB=neo4j)
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
+      NEO4J_DATABASE: neo4j
+
+      # JPA - Postgres
+      PG_URL: jdbc:postgresql://postgres:5432/${PG_DB:-lilac_planner}
+      PG_USER: ${PG_USER:-planner}
+      PG_PASSWORD: ${PG_PASSWORD:-planner}
+
+      # JPA - MariaDB
+      MARIADB_URL: jdbc:mariadb://mariadb:3306/${MARIADB_DB:-lilac_planner}
+      MARIADB_USER: ${MARIADB_USER:-planner}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-planner}
+
+      # DynamoDB
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+
+      # Push notifications (task alarms) - blank VAPID keys ⇒ web push no-ops, no crash.
+      # Generate once: npx web-push generate-vapid-keys
+      PLANNER_VAPID_PUBLIC_KEY: ${PLANNER_VAPID_PUBLIC_KEY:-}
+      PLANNER_VAPID_PRIVATE_KEY: ${PLANNER_VAPID_PRIVATE_KEY:-}
+      PLANNER_VAPID_SUBJECT: ${PLANNER_VAPID_SUBJECT:-}
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+      PLANNER_PUSH_ALARM_POLL_INTERVAL: ${PLANNER_PUSH_ALARM_POLL_INTERVAL:-PT30S}
+      PLANNER_DEFAULT_TIMEZONE: ${PLANNER_DEFAULT_TIMEZONE:-UTC}
+    ports:
+      - "8090:8090"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: lilac-frontend
+    depends_on:
+      - backend
+    environment:
+      AUTH_ENABLED: "false"
+    ports:
+      - "5173:8080"
+    restart: unless-stopped

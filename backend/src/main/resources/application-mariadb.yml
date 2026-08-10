@@ -1,0 +1,25 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jReactiveDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.neo4j.Neo4jReactiveRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.neo4j.Neo4jAutoConfiguration
+  datasource:
+    url: ${MARIADB_URL:jdbc:mariadb://localhost:3306/lilac_planner}
+    username: ${MARIADB_USER:planner}
+    password: ${MARIADB_PASSWORD}
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      transaction-isolation: TRANSACTION_READ_COMMITTED
+  flyway:
+    locations: classpath:db/migration/mariadb
+    baseline-on-migrate: true
+    baseline-version: 1
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MariaDBDialect
