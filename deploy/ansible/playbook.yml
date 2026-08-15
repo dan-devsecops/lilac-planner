@@ -1,0 +1,28 @@
+---
+- name: Bootstrap droplet (swap, Loki Docker driver, ufw)
+  hosts: droplet
+  become: true
+
+  tasks:
+    - name: Set up swapfile (deploy/scripts/setup-droplet-swap.sh)
+      ansible.builtin.script: ../scripts/setup-droplet-swap.sh
+      register: swap_result
+      changed_when: "'Creating' in swap_result.stdout"
+
+    - name: Install Loki Docker logging driver (deploy/scripts/install-loki-docker-driver.sh)
+      ansible.builtin.script: ../scripts/install-loki-docker-driver.sh
+      register: loki_result
+      changed_when: "'Installing' in loki_result.stdout"
+
+    - name: Allow SSH/HTTP/HTTPS through ufw
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - "22"
+        - "80"
+        - "443"
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
