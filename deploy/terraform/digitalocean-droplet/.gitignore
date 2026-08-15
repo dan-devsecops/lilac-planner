@@ -1,0 +1,15 @@
+# provider plugins & cache
+.terraform/
+.terraform.lock.hcl
+
+# state - contains resource attributes, treat as sensitive
+*.tfstate
+*.tfstate.*
+
+# real values (the tfvars route instead of TF_VAR_do_token)
+terraform.tfvars
+*.auto.tfvars
+
+crash.log
+override.tf
+override.tf.json
