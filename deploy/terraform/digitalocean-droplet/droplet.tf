@@ -16,6 +16,10 @@ resource "digitalocean_droplet" "app" {
     curl -fsSL https://get.docker.com | sh
     mkdir -p /opt/lilac-planner
 
+    ${file("${path.module}/../../scripts/setup-droplet-swap.sh")}
+
+    ${file("${path.module}/../../scripts/install-loki-docker-driver.sh")}
+
     ufw allow 22
     ufw allow 80
     ufw allow 443
