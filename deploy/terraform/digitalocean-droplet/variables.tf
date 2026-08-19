@@ -33,3 +33,9 @@ variable "ssh_public_key_path" {
   type        = string
   default     = "~/.ssh/id_ed25519_ag_digitalocean_tf.pub"
 }
+
+variable "project_name" {
+  description = "DO Projects display name in the console"
+  type        = string
+  default     = "Lilac Planner"
+}

@@ -10,3 +10,7 @@ output "droplet_id" {
 output "ssh_key_fingerprint" {
   value = digitalocean_ssh_key.deploy.fingerprint
 }
+
+output "project_id" {
+  value = digitalocean_project.this.id
+}
