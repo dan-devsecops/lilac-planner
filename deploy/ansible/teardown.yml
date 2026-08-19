@@ -1,0 +1,40 @@
+---
+#   ansible-playbook teardown.yml --tags teardown-loki   # just the Loki plugin removal
+#   ansible-playbook teardown.yml --tags teardown-swap   # just swapoff + fstab + file cleanup
+#   ansible-playbook teardown.yml                        # both, no filter
+- name: Teardown tasks (opt-in, run explicitly - never part of bootstrap.yml)
+  hosts: droplet
+  become: true
+
+  tasks:
+    - name: Remove Loki Docker logging driver
+      community.docker.docker_plugin:
+        plugin_name: grafana/loki-docker-driver:latest
+        alias: loki
+        state: absent
+        force_remove: true
+      tags: [teardown-loki]
+
+    - name: Check swap status
+      ansible.builtin.command: swapon --show
+      register: swap_check
+      changed_when: false
+      tags: [teardown-swap]
+
+    - name: Disable swap
+      ansible.builtin.command: swapoff /swapfile
+      when: "'/swapfile' in swap_check.stdout"
+      tags: [teardown-swap]
+
+    - name: Remove swapfile entry from /etc/fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^/swapfile'
+        state: absent
+      tags: [teardown-swap]
+
+    - name: Remove swapfile
+      ansible.builtin.file:
+        path: /swapfile
+        state: absent
+      tags: [teardown-swap]
