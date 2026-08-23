@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Refuses to commit any staged "vault.yml" (ansible-vault secrets, see deploy/ansible/group_vars/droplet/vault.yml) unless it's actually encrypted.
+# Catches "forgot to run ansible-vault encrypt" before it becomes a permanent git history entry
+# Enable once per clone: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+staged_vault_files=$(git diff --cached --name-only --diff-filter=ACM -- '*vault.yml' | grep -v '\.example$' || true)
+
+[ -z "$staged_vault_files" ] && exit 0
+
+fail=0
+while IFS= read -r file; do
+  header=$(git show ":${file}" | head -c 14)
+  if [ "$header" != '$ANSIBLE_VAULT' ]; then
+    echo "pre-commit: '${file}' is staged but not ansible-vault encrypted (no \$ANSIBLE_VAULT header)." >&2
+    echo "  Run: ansible-vault encrypt ${file}" >&2
+    fail=1
+  fi
+done <<<"$staged_vault_files"
+
+exit "$fail"

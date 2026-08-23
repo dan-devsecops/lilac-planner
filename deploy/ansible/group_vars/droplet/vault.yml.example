@@ -1,0 +1,40 @@
+---
+# Template for the vars that render /opt/lilac-planner/.env.prod on the droplet
+#
+# First-time setup:
+#   cp deploy/ansible/group_vars/droplet/vault.yml.example deploy/ansible/group_vars/droplet/vault.yml
+#   $EDITOR deploy/ansible/group_vars/droplet/vault.yml
+#   ansible-vault encrypt deploy/ansible/group_vars/droplet/vault.yml
+#   ansible-playbook bootstrap.yml --ask-vault-pass
+#
+# To change a value later: `ansible-vault edit deploy/ansible/group_vars/droplet/vault.yml`,
+# then re-run bootstrap.yml. Never `ansible-vault decrypt` and leave it decrypted on disk.
+
+
+registry_server:
+# domain:
+
+auth_provider: native              # none | native | keycloak
+planner_jwt_secret: "CHANGE_ME"    # required if auth_provider: native
+
+planner_admin_username: "admin"
+planner_admin_password: "CHANGE_ME"
+planner_admin_email: ""
+
+mail_host: ""
+mail_port: "587"
+mail_user: ""
+mail_password: ""
+
+mariadb_user: planner
+mariadb_password: CHANGE_ME
+mariadb_root_password: CHANGE_ME
+mariadb_db: lilac_planner
+
+planner_vapid_public_key: ""
+planner_vapid_private_key: ""
+planner_vapid_subject: ""
+expo_access_token: ""
+
+planner_metrics_password: CHANGE_ME
+grafana_admin_password: CHANGE_ME

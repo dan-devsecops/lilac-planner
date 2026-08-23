@@ -36,6 +36,9 @@ deploy/keycloak/*.pem
 deploy/**/README.md
 deploy/scripts
 
+# Ansible vault passphrase (never the vault.yml it decrypts - that's meant to be committed encrypted)
+deploy/ansible/.vault_pass
+
 # OS
 .DS_Store
 
