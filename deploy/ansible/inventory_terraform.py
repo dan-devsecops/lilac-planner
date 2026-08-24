@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TF_DIR = os.path.join(SCRIPT_DIR, "..", "terraform", "digitalocean-droplet")
+TF_DIR = os.path.join(SCRIPT_DIR, "..", "terraform", "digitalocean")
 SSH_KEY = "~/.ssh/id_ed25519_ag_digitalocean_tf"
 HOSTNAME = "tf-lilac-planner-prod-01"
 

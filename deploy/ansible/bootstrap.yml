@@ -1,5 +1,5 @@
 ---
-- name: Bootstrap droplet (swap, Loki Docker driver, ufw)
+- name: Bootstrap droplet (.env.prod, swap, Loki Docker driver, ufw)
   hosts: droplet
   become: true
 
