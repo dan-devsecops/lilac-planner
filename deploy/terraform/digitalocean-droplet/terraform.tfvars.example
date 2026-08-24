@@ -1,8 +1,0 @@
-# Copy to terraform.tfvars and adjust if you want to override defaults.
-
-do_token =
-
-region              = "fra1"
-droplet_size        = "s-1vcpu-1gb"
-ssh_public_key_path = "~/.ssh/key.pub"
-project_name        = "Lilac Planner"

@@ -1,65 +1,41 @@
 variable "do_token" {
-  description = "DigitalOcean personal access token. Supply via TF_VAR_do_token - never commit."
+  description = "DigitalOcean personal access token."
   type        = string
   sensitive   = true
 }
 
-variable "prefix" {
-  description = "Short name prefix for all resources."
+variable "name_prefix" {
+  description = "Name prefix for all resources."
   type        = string
-  default     = "lilac"
+  default     = "tf-lilac-planner-prod"
 }
 
 variable "region" {
-  description = "DigitalOcean region slug (e.g. fra1, nyc3, ams3)."
+  description = "DigitalOcean region slug."
   type        = string
   default     = "fra1"
 }
 
-# ---------- DOKS ----------
-
-variable "kubernetes_version_prefix" {
-  description = "DOKS version prefix - the latest available patch is picked automatically (e.g. '1.30')."
+variable "droplet_size" {
+  description = "Droplet size slug."
   type        = string
-  default     = "1.30"
+  default     = "s-1vcpu-1gb"
 }
 
-variable "node_size" {
-  description = "Droplet size slug for worker nodes (run: doctl kubernetes options sizes)."
+variable "droplet_image" {
+  description = "Base image slug."
   type        = string
-  default     = "s-2vcpu-4gb"
+  default     = "ubuntu-24-04-x64"
 }
 
-variable "node_count" {
-  description = "Number of worker nodes."
-  type        = number
-  default     = 2
+variable "ssh_public_key_path" {
+  description = "Path to the PUBLIC half of the keypair to install on the droplet."
+  type        = string
+  default     = "~/.ssh/id_ed25519_ag_digitalocean_tf.pub"
 }
 
-# ---------- Database (DO Managed MySQL) ----------
-
-variable "db_size" {
-  description = "Managed-database size slug (run: doctl databases list-options --engine mysql)."
+variable "project_name" {
+  description = "DO Projects display name in the console"
   type        = string
-  default     = "db-s-1vcpu-1gb"
-}
-
-variable "db_name" {
-  description = "Application database name."
-  type        = string
-  default     = "lilac_planner"
-}
-
-variable "db_admin_user" {
-  description = "Database user for the application."
-  type        = string
-  default     = "planner"
-}
-
-# ---------- Registry ----------
-
-variable "registry_tier" {
-  description = "DOCR subscription tier: starter (1 repo / 500 MB free), basic ($5/mo, 5 GB), professional ($20/mo, 100 GB)."
-  type        = string
-  default     = "basic"
+  default     = "Lilac Planner"
 }
