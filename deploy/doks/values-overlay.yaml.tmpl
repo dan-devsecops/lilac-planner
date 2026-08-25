@@ -1,0 +1,36 @@
+# Runtime overlay applied on top of deploy/helm/lilac-planner/values-prod.yaml
+# by .github/workflows/cd-doks.yml. Values here are only known at deploy time
+# (image tag, DOCR host, the pull/DB secrets the workflow just created, the
+# domain) so they're templated with `envsubst` rather than hardcoded.
+
+image:
+  registry: "${REGISTRY_SERVER}"
+  pullSecrets:
+    - name: docr-pull-secret
+
+backend:
+  image:
+    tag: "${DEPLOY_TAG}"
+  corsAllowedOrigins: "https://${INGRESS_HOST}"
+  # digitalocean-doks provisions a managed Postgres cluster (DO has no
+  # managed MariaDB, and the mariadb migrations aren't MySQL-portable - see
+  # deploy/terraform/digitalocean-doks/database.tf).
+  plannerDb: postgres
+
+frontend:
+  image:
+    tag: "${DEPLOY_TAG}"
+
+db:
+  mode: external
+  existingSecret: lilac-db
+
+ingress:
+  enabled: true
+  className: nginx
+  host: "${INGRESS_HOST}"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: lilac-tls

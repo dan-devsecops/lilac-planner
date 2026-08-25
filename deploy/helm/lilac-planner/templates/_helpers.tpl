@@ -63,7 +63,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 
 {{/*
   Effective backend JDBC URL.
-  - embedded mode: derive from the in-cluster MariaDB service.
+  - embedded mode: derive from the in-cluster MariaDB service (embedded mode
+    is MariaDB-only by design - see mariadb-statefulset.yaml).
   - external mode: use the user-supplied db.url.
 */}}
 {{- define "lilac.db.url" -}}
@@ -72,4 +73,21 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 {{- else -}}
 {{- required "db.url is required when db.mode=external" .Values.db.url -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+  DB credential env var / Secret key names, keyed by backend.plannerDb - the
+  backend reads different env vars per storage profile (MARIADB_* for
+  mariadb, PG_* for postgres; see application-{mariadb,postgres}.yml). Reused
+  for both the container env var NAME and the Secret key it reads from, so
+  the two always match.
+*/}}
+{{- define "lilac.db.urlEnvName" -}}
+{{- if eq .Values.backend.plannerDb "postgres" -}}PG_URL{{- else -}}MARIADB_URL{{- end -}}
+{{- end -}}
+{{- define "lilac.db.userEnvName" -}}
+{{- if eq .Values.backend.plannerDb "postgres" -}}PG_USER{{- else -}}MARIADB_USER{{- end -}}
+{{- end -}}
+{{- define "lilac.db.passwordEnvName" -}}
+{{- if eq .Values.backend.plannerDb "postgres" -}}PG_PASSWORD{{- else -}}MARIADB_PASSWORD{{- end -}}
 {{- end -}}

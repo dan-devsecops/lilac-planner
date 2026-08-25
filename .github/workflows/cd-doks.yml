@@ -1,0 +1,181 @@
+name: CD (DigitalOcean Kubernetes)
+
+on:
+  workflow_run:
+    workflows: ["CI (GitHub)"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy (12-char commit SHA). Empty = build & deploy the latest commit on main."
+        required: false
+        default: ""
+
+concurrency:
+  group: cd-prod-doks
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  REGISTRY_SERVER: registry.digitalocean.com/${{ vars.DO_REGISTRY_NAME }}
+
+jobs:
+  build:
+    name: Build & push ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >
+      inputs.tag == '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_TOKEN }}
+
+      - name: Log in to DOCR
+        run: doctl registry login --expiry-seconds 1200
+
+      - name: Build image
+        run: |
+          set -euo pipefail
+          TAG="${DEPLOY_SHA::12}"
+          docker build -t "$REGISTRY_SERVER/lilac-planner-${{ matrix.component }}:$TAG" \
+                       -t "$REGISTRY_SERVER/lilac-planner-${{ matrix.component }}:latest" \
+                       "./${{ matrix.component }}"
+
+      - name: Push image
+        run: |
+          set -euo pipefail
+          TAG="${DEPLOY_SHA::12}"
+          docker push "$REGISTRY_SERVER/lilac-planner-${{ matrix.component }}:$TAG"
+          docker push "$REGISTRY_SERVER/lilac-planner-${{ matrix.component }}:latest"
+
+  deploy:
+    name: Deploy & verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    if: >
+      always() && !cancelled() &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Resolve image tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-${DEPLOY_SHA::12}}"
+          echo "DEPLOY_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "Deploying image tag: $TAG"
+
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_TOKEN }}
+
+      - uses: azure/setup-kubectl@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Get DOKS kubeconfig
+        run: doctl kubernetes cluster kubeconfig save "${{ vars.DO_CLUSTER_NAME }}"
+
+      - name: Ensure namespace
+        run: kubectl create namespace lilac-planner --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Sync DOCR pull secret (refreshed every run - the token DO issues is short-lived)
+        run: |
+          set -euo pipefail
+          doctl registry docker-config --expiry-seconds 3600 > /tmp/docr-config.json
+          kubectl create secret generic docr-pull-secret \
+            --from-file=.dockerconfigjson=/tmp/docr-config.json \
+            --type=kubernetes.io/dockerconfigjson \
+            --namespace lilac-planner \
+            --dry-run=client -o yaml | kubectl apply -f -
+          rm -f /tmp/docr-config.json
+
+      - name: Sync DB secret (from Terraform outputs stored as GitHub Secrets)
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_URL: ${{ secrets.DB_URL }}
+        run: |
+          set -euo pipefail
+          # Key names are PG_* to match backend.plannerDb=postgres in
+          # values-overlay.yaml.tmpl (see _helpers.tpl's db.*EnvName helpers).
+          kubectl create secret generic lilac-db \
+            --from-literal=PG_USER="$DB_USER" \
+            --from-literal=PG_PASSWORD="$DB_PASSWORD" \
+            --from-literal=PG_URL="$DB_URL" \
+            --namespace lilac-planner \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install/upgrade ingress-nginx + cert-manager (idempotent)
+        run: |
+          set -euo pipefail
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            -n ingress-nginx --create-namespace --wait --timeout 5m
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            -n cert-manager --create-namespace --set crds.enabled=true --wait --timeout 5m
+
+      - name: Apply ClusterIssuer
+        env:
+          LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
+        run: envsubst '$LETSENCRYPT_EMAIL' < deploy/doks/cluster-issuer.yaml | kubectl apply -f -
+
+      - name: Render DO-specific values overlay
+        env:
+          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
+        run: envsubst '$REGISTRY_SERVER $DEPLOY_TAG $INGRESS_HOST' \
+               < deploy/doks/values-overlay.yaml.tmpl > /tmp/values-overlay.yaml
+
+      - name: helm upgrade
+        run: |
+          set -euo pipefail
+          helm upgrade --install lilac ./deploy/helm/lilac-planner \
+            --namespace lilac-planner --create-namespace \
+            -f deploy/helm/lilac-planner/values-prod.yaml \
+            -f /tmp/values-overlay.yaml \
+            --wait --timeout 5m
+
+      - name: Verify rollout
+        run: |
+          set -euo pipefail
+          kubectl rollout status deployment/lilac-lilac-planner-backend -n lilac-planner --timeout=180s
+          kubectl rollout status deployment/lilac-lilac-planner-frontend -n lilac-planner --timeout=180s
+
+      - name: Public smoke check
+        env:
+          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
+        run: |
+          set -euo pipefail
+          echo "Checking https://$INGRESS_HOST from outside..."
+          curl -sf --max-time 15 -o /dev/null "https://$INGRESS_HOST"
+          echo "https://$INGRESS_HOST is serving."
+
+      - name: Show cluster status
+        if: always()
+        run: |
+          kubectl get pods -n lilac-planner -o wide
+          echo "--- recent backend logs:"
+          kubectl logs -n lilac-planner -l app.kubernetes.io/component=backend --tail 40 || true

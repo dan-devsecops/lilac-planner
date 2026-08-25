@@ -76,6 +76,24 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  helm-lint:
+    name: Helm · lint + render (embedded & external DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4
+      - name: helm lint
+        run: helm lint deploy/helm/lilac-planner
+      - name: Render - default values (embedded DB, dev)
+        run: helm template lilac deploy/helm/lilac-planner --set image.registry=example.registry.io
+      - name: Render - values-prod.yaml (external DB, ingress+TLS)
+        run: |
+          helm template lilac deploy/helm/lilac-planner -f deploy/helm/lilac-planner/values-prod.yaml \
+            --set image.registry=example.registry.io \
+            --set db.url='jdbc:mariadb://db.example.com:3306/lilac_planner' \
+            --set db.existingSecret=lilac-db
+
   sca:
     name: Security · ${{ matrix.component }} dependency (SCA) scan
     runs-on: ubuntu-latest
