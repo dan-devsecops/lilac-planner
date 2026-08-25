@@ -85,8 +85,10 @@ BEGIN
   IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'jpa_day_earned_stickers'
              AND COLUMN_NAME = 'jpa_day_id' AND DATA_TYPE = 'bigint') THEN
+    ALTER TABLE jpa_day_earned_stickers DROP PRIMARY KEY;
     ALTER TABLE jpa_day_earned_stickers DROP COLUMN jpa_day_id;
     ALTER TABLE jpa_day_earned_stickers CHANGE COLUMN new_jpa_day_id jpa_day_id UUID NOT NULL FIRST;
+    ALTER TABLE jpa_day_earned_stickers ADD PRIMARY KEY (jpa_day_id, sticker_code);
   ELSE
     ALTER TABLE jpa_day_earned_stickers DROP COLUMN IF EXISTS new_jpa_day_id;
   END IF;
