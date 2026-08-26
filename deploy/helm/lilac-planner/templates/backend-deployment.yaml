@@ -96,7 +96,7 @@ spec:
                   optional: true
             {{- end }}
             {{- end }}
-            - name: MARIADB_URL
+            - name: {{ include "lilac.db.urlEnvName" . }}
               {{- if eq .Values.db.mode "embedded" }}
               value: {{ include "lilac.db.url" . | quote }}
               {{- else if .Values.db.url }}
@@ -105,20 +105,20 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lilac.db.secretName" . }}
-                  key: MARIADB_URL
+                  key: {{ include "lilac.db.urlEnvName" . }}
               {{- else }}
-              {{- fail "db.mode=external requires either db.url or db.existingSecret containing a MARIADB_URL key" }}
+              {{- fail (printf "db.mode=external requires either db.url or db.existingSecret containing a %s key" (include "lilac.db.urlEnvName" .)) }}
               {{- end }}
-            - name: MARIADB_USER
+            - name: {{ include "lilac.db.userEnvName" . }}
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lilac.db.secretName" . }}
-                  key: MARIADB_USER
-            - name: MARIADB_PASSWORD
+                  key: {{ include "lilac.db.userEnvName" . }}
+            - name: {{ include "lilac.db.passwordEnvName" . }}
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lilac.db.secretName" . }}
-                  key: MARIADB_PASSWORD
+                  key: {{ include "lilac.db.passwordEnvName" . }}
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

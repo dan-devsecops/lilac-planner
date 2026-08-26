@@ -19,7 +19,8 @@ CREATE TABLE planner_day (
 
 CREATE TABLE jpa_day_earned_stickers (
     jpa_day_id   BIGINT       NOT NULL,
-    sticker_code VARCHAR(255),
+    sticker_code VARCHAR(255) NOT NULL,
+    PRIMARY KEY (jpa_day_id, sticker_code),
     CONSTRAINT fk_stickers_day FOREIGN KEY (jpa_day_id) REFERENCES planner_day (id)
 );
 

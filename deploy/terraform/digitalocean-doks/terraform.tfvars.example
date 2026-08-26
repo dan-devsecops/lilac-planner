@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars (gitignored, chmod 600) and fill in.
+# Alternative: export TF_VAR_do_token instead of writing it to a file.
+
+do_token = "dop_v1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+region   = "fra1"
+
+# Uncomment to change the defaults (see variables.tf for the full list):
+# node_size     = "s-2vcpu-2gb"
+# node_count    = 2
+# registry_name = "lilac-planner"
+# db_size       = "db-s-1vcpu-1gb"

@@ -54,10 +54,13 @@ ALTER TABLE planner_task ALTER COLUMN id     SET NOT NULL;
 ALTER TABLE planner_task ALTER COLUMN day_id SET NOT NULL;
 ALTER TABLE planner_task ADD PRIMARY KEY (id);
 
--- 8. jpa_day_earned_stickers: FK column only.
+-- 8. jpa_day_earned_stickers:
+ALTER TABLE jpa_day_earned_stickers DROP CONSTRAINT jpa_day_earned_stickers_pkey;
 ALTER TABLE jpa_day_earned_stickers DROP COLUMN jpa_day_id;
 ALTER TABLE jpa_day_earned_stickers RENAME COLUMN new_jpa_day_id TO jpa_day_id;
 ALTER TABLE jpa_day_earned_stickers ALTER COLUMN jpa_day_id SET NOT NULL;
+ALTER TABLE jpa_day_earned_stickers ALTER COLUMN sticker_code SET NOT NULL;
+ALTER TABLE jpa_day_earned_stickers ADD PRIMARY KEY (jpa_day_id, sticker_code);
 
 -- 9. planner_auth_token.
 ALTER TABLE planner_auth_token DROP CONSTRAINT planner_auth_token_pkey;

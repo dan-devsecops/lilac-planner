@@ -43,7 +43,7 @@ public class JpaDay {
     private List<JpaTask> tasks = new ArrayList<>();
 
     @ElementCollection(fetch = FetchType.EAGER)
-    @Column(name = "sticker_code")
+    @Column(name = "sticker_code", nullable = false)
     private List<String> earnedStickers = new ArrayList<>();
 
     public JpaDay() {}
