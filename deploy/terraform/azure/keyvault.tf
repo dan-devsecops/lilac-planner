@@ -3,7 +3,7 @@
 resource "azurerm_key_vault" "this" {
   name                       = "${var.prefix}-kv-${random_string.suffix.result}"
   resource_group_name        = azurerm_resource_group.this.name
-  location                   = azurerm_resource_group.this.location
+  location                   = var.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
   rbac_authorization_enabled = true
@@ -19,28 +19,26 @@ resource "azurerm_role_assignment" "kv_admin" {
 }
 
 resource "azurerm_key_vault_secret" "db_user" {
-  name         = "mariadb-user"
+  name         = "pg-user"
   value        = var.db_admin_user
   key_vault_id = azurerm_key_vault.this.id
   depends_on   = [azurerm_role_assignment.kv_admin]
 }
 
 resource "azurerm_key_vault_secret" "db_password" {
-  name         = "mariadb-password"
+  name         = "pg-password"
   value        = random_password.db.result
   key_vault_id = azurerm_key_vault.this.id
   depends_on   = [azurerm_role_assignment.kv_admin]
 }
 
-# Full JDBC URL the backend consumes (MariaDB driver against Azure MySQL).
-# sslMode=verify-full encrypts AND validates the server certificate + hostname
-# (sslMode=trust would skip validation, leaving the connection open to MITM).
-# Relies on Azure's CA (DigiCert Global Root G2) being in the JVM truststore,
-# which it is on modern JREs. If a handshake fails on first deploy, fall back
-# to verify-ca, or mount the Azure CA PEM and point serverSslCert at it.
+# Full JDBC URL the backend consumes (org.postgresql.Driver against the
+# primary database on the HA Flexible Server). sslmode=require encrypts the
+# connection; Flexible Server presents a certificate chained to a well-known
+# CA so the JVM's default truststore validates it without extra setup.
 resource "azurerm_key_vault_secret" "db_url" {
-  name         = "mariadb-url"
-  value        = "jdbc:mariadb://${azurerm_mysql_flexible_server.this.fqdn}:3306/${var.db_name}?sslMode=verify-full"
+  name         = "pg-url"
+  value        = "jdbc:postgresql://${azurerm_postgresql_flexible_server.this.fqdn}:5432/${var.db_name}?sslmode=require"
   key_vault_id = azurerm_key_vault.this.id
   depends_on   = [azurerm_role_assignment.kv_admin]
 }

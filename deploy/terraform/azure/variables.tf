@@ -39,32 +39,38 @@ variable "node_vm_size" {
 }
 
 # ---------------- Database ----------------
-variable "mysql_version" {
-  description = "Azure Database for MySQL Flexible Server version."
+variable "postgres_version" {
+  description = "Azure Database for PostgreSQL Flexible Server version."
   type        = string
-  default     = "8.0.21"
+  default     = "16"
 }
 
-variable "mysql_sku" {
-  description = "Flexible Server SKU."
+variable "postgres_sku" {
+  description = "Flexible Server SKU. Must be a General Purpose (GP_*) or Memory Optimized (MO_*) tier - Burstable (B_*) does not support zone-redundant HA."
   type        = string
-  default     = "B_Standard_B1ms"
+  default     = "GP_Standard_D2s_v3"
 }
 
-variable "mysql_storage_gb" {
-  description = "Flexible Server storage in GB."
+variable "postgres_storage_mb" {
+  description = "Flexible Server storage in MB (32768 is the minimum)."
   type        = number
-  default     = 20
+  default     = 32768
 }
 
 variable "db_name" {
-  description = "Application database name."
+  description = "Primary application database name."
   type        = string
   default     = "lilac_planner"
 }
 
+variable "db_name_2" {
+  description = "Second database hosted on the same Flexible Server."
+  type        = string
+  default     = "lilac_planner_2"
+}
+
 variable "db_admin_user" {
-  description = "MySQL administrator login."
+  description = "PostgreSQL administrator login."
   type        = string
   default     = "planner"
 }

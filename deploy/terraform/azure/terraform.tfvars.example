@@ -1,10 +1,15 @@
 # Copy to terraform.tfvars and adjust. No secrets here - the DB password is
 # generated and stored in Key Vault by Terraform.
+#
+# location/node_vm_size below are values confirmed to work on a brand-new
+# subscription - new subscriptions get region/SKU restrictions that vary
+# unpredictably per resource type (see the README's "brand-new subscription"
+# callout before changing these).
 prefix             = "lilac"
-location           = "westeurope"
+location           = "centralus"
 node_count         = 2
-node_vm_size       = "Standard_B2s"
-mysql_sku          = "B_Standard_B1ms"
+node_vm_size       = "Standard_D2as_v7"
+postgres_sku       = "GP_Standard_D2s_v3"
 
 # Required for CI/CD federation. Set to your GitHub repo (owner/name).
 enable_github_oidc = true

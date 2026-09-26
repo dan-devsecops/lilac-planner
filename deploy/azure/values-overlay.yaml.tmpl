@@ -1,0 +1,49 @@
+# Runtime overlay applied on top of deploy/helm/lilac-planner/values-prod.yaml
+# by .github/workflows/cd-azure.yml. Values here are only known at deploy
+# time (image tag, ACR host, the domain, whether to bootstrap an admin) so
+# they're templated with `envsubst` rather than hardcoded.
+#
+# No image.pullSecrets here (unlike the DigitalOcean overlay) - the AKS
+# kubelet identity already has AcrPull on the registry directly (registry.tf).
+#
+# ADMIN_USERNAME/ADMIN_EMAIL are optional - leave both unset (default "") to
+# fall back to the chart's own default (first registrant becomes admin).
+
+image:
+  registry: "${ACR_LOGIN_SERVER}"
+
+backend:
+  image:
+    tag: "${DEPLOY_TAG}"
+  corsAllowedOrigins: "https://${INGRESS_HOST}"
+  # Azure Database for MySQL Flexible Server is actual MySQL, not MariaDB
+  # (Azure retired managed MariaDB) - the mariadb profile's migrations aren't
+  # MySQL-portable, so this deploys against the managed Postgres Flexible
+  # Server instead (see deploy/terraform/azure/database.tf).
+  plannerDb: postgres
+
+frontend:
+  image:
+    tag: "${DEPLOY_TAG}"
+
+db:
+  mode: external
+  existingSecret: lilac-db
+
+auth:
+  provider: native
+  native:
+    existingSecret: lilac-auth
+    admin:
+      username: "${ADMIN_USERNAME}"
+      email: "${ADMIN_EMAIL}"
+
+ingress:
+  enabled: true
+  className: nginx
+  host: "${INGRESS_HOST}"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: lilac-tls

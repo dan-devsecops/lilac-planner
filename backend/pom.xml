@@ -28,7 +28,7 @@
         <java.version>21</java.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <aws.sdk.version>2.46.15</aws.sdk.version>
-        <tomcat.version>10.1.55</tomcat.version>
+        <tomcat.version>10.1.60</tomcat.version>
     </properties>
 
     <dependencyManagement>
@@ -44,6 +44,18 @@
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
                 <version>${aws.sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Pulled in transitively at 4.1.132.Final by both awssdk's netty-nio-client
+                 (dynamodb) and web-push's async-http-client - CVE-2026-75595 (SNI routing
+                 bypass), fixed in 4.1.137.Final. Import the BOM rather than pinning
+                 netty-handler alone so every netty-* module stays on the same patch
+                 version (mixing them risks NoSuchMethodError at runtime). -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>4.1.137.Final</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -158,7 +170,7 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.84</version>
+            <version>1.85</version>
         </dependency>
         <!-- web-push declares httpasyncclient and jose4j as runtime-scope, but PushService#send()'s
              signature (return type org.apache.http.HttpResponse, throws JoseException) needs both
