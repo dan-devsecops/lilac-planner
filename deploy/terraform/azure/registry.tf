@@ -3,7 +3,7 @@ resource "azurerm_container_registry" "this" {
   # ACR names must be globally unique and alphanumeric only.
   name                = "${var.prefix}acr${random_string.suffix.result}"
   resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
+  location            = var.location
   sku                 = "Standard"
   admin_enabled       = false
   tags                = var.tags

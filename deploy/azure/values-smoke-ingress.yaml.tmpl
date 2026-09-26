@@ -1,0 +1,21 @@
+# Ingress overlay for the manual AKS smoke-test deploy. Only apply once
+# ingress-nginx + cert-manager are bootstrapped (see the terraform README's
+# "Bootstrap cluster add-ons" section). Always pass together with
+# values-smoke-base.yaml.tmpl in the same `helm upgrade -f ... -f ...` call -
+# passing this file alone would reset every field only the base file sets
+# back to its chart default.
+#
+# Required env vars: INGRESS_HOST
+
+backend:
+  corsAllowedOrigins: "https://${INGRESS_HOST}"
+
+ingress:
+  enabled: true
+  className: nginx
+  host: "${INGRESS_HOST}"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: lilac-tls

@@ -1,0 +1,39 @@
+# Base values for the manual DOKS smoke-test deploy (see
+# ../terraform/digitalocean-doks/README.md's "Manual smoke-test deploy"
+# section). Rendered with envsubst and passed via `-f` to `helm
+# install`/`upgrade` - once ingress is bootstrapped, always pass this file
+# together with values-smoke-ingress.yaml.tmpl in the SAME command.
+#
+# Never `--set` a subset of these fields by hand instead: a partial `--set`
+# upgrade silently resets whatever it doesn't mention back to the chart
+# default. That's exactly how this deploy lost `image.registry` (fell back
+# to Docker Hub) and later `ingress.*` (fell back to disabled) during manual
+# troubleshooting - both times from a `helm upgrade` that only passed the
+# flags relevant to the immediate fix.
+#
+# Required env vars: REGISTRY, TAG
+
+image:
+  registry: "${REGISTRY}"
+  pullPolicy: Always   # "smoke" is a mutable tag, not an immutable sha - always re-pull
+  pullSecrets:
+    - name: docr-pull-secret
+
+backend:
+  image:
+    tag: "${TAG}"
+  plannerDb: postgres
+
+frontend:
+  image:
+    tag: "${TAG}"
+
+db:
+  mode: external
+  existingSecret: lilac-db
+
+auth:
+  provider: native
+  native:
+    existingSecret: lilac-auth
+    signupEnabled: true

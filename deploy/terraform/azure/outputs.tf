@@ -19,13 +19,13 @@ output "key_vault_name" {
   value = azurerm_key_vault.this.name
 }
 
-output "mysql_fqdn" {
-  value = azurerm_mysql_flexible_server.this.fqdn
+output "postgres_fqdn" {
+  value = azurerm_postgresql_flexible_server.this.fqdn
 }
 
 output "jdbc_url" {
-  description = "Value stored in Key Vault secret 'mariadb-url'."
-  value       = "jdbc:mariadb://${azurerm_mysql_flexible_server.this.fqdn}:3306/${var.db_name}?sslMode=trust"
+  description = "Value stored in Key Vault secret 'pg-url'."
+  value       = "jdbc:postgresql://${azurerm_postgresql_flexible_server.this.fqdn}:5432/${var.db_name}?sslmode=require"
 }
 
 # -------- GitHub Actions secrets (set these in the repo) --------

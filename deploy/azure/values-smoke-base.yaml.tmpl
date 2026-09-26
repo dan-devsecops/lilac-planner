@@ -1,0 +1,43 @@
+# Base values for the manual AKS smoke-test deploy (see
+# ../terraform/azure/README.md's deploy walkthrough). Rendered with envsubst
+# and passed via `-f` to `helm install`/`upgrade` - once ingress is
+# bootstrapped, always pass this file together with
+# values-smoke-ingress.yaml.tmpl in the SAME command.
+#
+# Never `--set` a subset of these fields by hand instead: a partial `--set`
+# upgrade silently resets whatever it doesn't mention back to the chart
+# default (see deploy/terraform/digitalocean-doks/README.md for the exact
+# way this has bitten the DOKS deploy twice already).
+#
+# Required env vars: REGISTRY, TAG
+#
+# No image.pullSecrets needed here (unlike the DigitalOcean smoke deploy) -
+# the AKS kubelet identity already has AcrPull on the registry directly
+# (see registry.tf's azurerm_role_assignment.aks_acr_pull).
+
+image:
+  registry: "${REGISTRY}"
+  pullPolicy: Always   # "smoke" is a mutable tag, not an immutable sha - always re-pull
+
+backend:
+  image:
+    tag: "${TAG}"
+  # Azure Database for MySQL Flexible Server is actual MySQL, not MariaDB
+  # (Azure retired managed MariaDB) - the mariadb profile's migrations use
+  # MariaDB-only DDL that doesn't parse there, so this deploys against the
+  # managed Postgres Flexible Server from database.tf instead.
+  plannerDb: postgres
+
+frontend:
+  image:
+    tag: "${TAG}"
+
+db:
+  mode: external
+  existingSecret: lilac-db
+
+auth:
+  provider: native
+  native:
+    existingSecret: lilac-auth
+    signupEnabled: true

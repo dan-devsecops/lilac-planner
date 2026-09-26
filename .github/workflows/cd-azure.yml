@@ -1,0 +1,195 @@
+name: CD (Azure Kubernetes Service)
+
+on:
+  workflow_run:
+    workflows: ["CI (GitHub)"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy (12-char commit SHA). Empty = build & deploy the latest commit on main."
+        required: false
+        default: ""
+
+concurrency:
+  group: cd-prod-azure
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for azure/login's OIDC federated credential exchange
+
+env:
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  build:
+    name: Build & push ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >
+      inputs.tag == '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      - name: Build image
+        run: |
+          set -euo pipefail
+          TAG="${DEPLOY_SHA::12}"
+          docker build -t "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component }}:$TAG" \
+                       -t "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component }}:latest" \
+                       "./${{ matrix.component }}"
+
+      - name: Push image
+        run: |
+          set -euo pipefail
+          TAG="${DEPLOY_SHA::12}"
+          docker push "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component }}:$TAG"
+          docker push "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component }}:latest"
+
+  deploy:
+    name: Deploy & verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    if: >
+      always() && !cancelled() &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Resolve image tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-${DEPLOY_SHA::12}}"
+          echo "DEPLOY_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "Deploying image tag: $TAG"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/setup-kubectl@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Get AKS credentials
+        run: |
+          # --admin: the cluster uses local accounts, not Azure AD RBAC (see
+          # github-oidc.tf's comment on azurerm_role_assignment.github_aks
+          # for the tradeoff and how to narrow this later).
+          az aks get-credentials -g "${{ vars.AKS_RG }}" -n "${{ vars.AKS_NAME }}" --admin --overwrite-existing
+
+      - name: Ensure namespace
+        run: kubectl create namespace lilac-planner --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Sync DB + auth secrets from Key Vault
+        run: |
+          set -euo pipefail
+          KV="${{ vars.KEYVAULT_NAME }}"
+
+          # Key names are PG_* to match backend.plannerDb=postgres in
+          # values-overlay.yaml.tmpl (see _helpers.tpl's db.*EnvName helpers).
+          kubectl create secret generic lilac-db \
+            --from-literal=PG_USER="$(az keyvault secret show --vault-name "$KV" -n pg-user --query value -o tsv)" \
+            --from-literal=PG_PASSWORD="$(az keyvault secret show --vault-name "$KV" -n pg-password --query value -o tsv)" \
+            --from-literal=PG_URL="$(az keyvault secret show --vault-name "$KV" -n pg-url --query value -o tsv)" \
+            --namespace lilac-planner \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # PLANNER_ADMIN_PASSWORD is harmless if auth.native.admin.username
+          # is left blank (values-overlay.yaml.tmpl) - the chart only reads it
+          # when bootstrapping the admin.
+          kubectl create secret generic lilac-auth \
+            --from-literal=PLANNER_JWT_SECRET="$(az keyvault secret show --vault-name "$KV" -n native-jwt-secret --query value -o tsv)" \
+            --from-literal=PLANNER_ADMIN_PASSWORD="$(az keyvault secret show --vault-name "$KV" -n native-admin-password --query value -o tsv)" \
+            --namespace lilac-planner \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install/upgrade ingress-nginx + cert-manager (idempotent)
+        run: |
+          set -euo pipefail
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          # externalTrafficPolicy=Local is required on AKS: Azure's LB health
+          # probe otherwise hits ingress-nginx's actual port 80 at "/", gets a
+          # 404 (no matching Host header) and treats it as unhealthy - Azure
+          # only accepts 200 as healthy - which silently drops ALL external
+          # traffic even though everything internal still works. Local makes
+          # Azure probe a dedicated kube-proxy health port instead.
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            -n ingress-nginx --create-namespace --wait --timeout 5m \
+            --set controller.service.externalTrafficPolicy=Local
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            -n cert-manager --create-namespace --set crds.enabled=true --wait --timeout 5m
+
+      - name: Apply ClusterIssuer
+        env:
+          LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
+        run: envsubst '$LETSENCRYPT_EMAIL' < deploy/azure/cluster-issuer.yaml | kubectl apply -f -
+
+      - name: Render Azure-specific values overlay
+        env:
+          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
+          ADMIN_USERNAME: ${{ vars.ADMIN_USERNAME }}
+          ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
+        run: envsubst '$ACR_LOGIN_SERVER $DEPLOY_TAG $INGRESS_HOST $ADMIN_USERNAME $ADMIN_EMAIL' \
+               < deploy/azure/values-overlay.yaml.tmpl > /tmp/values-overlay.yaml
+
+      - name: helm upgrade
+        run: |
+          set -euo pipefail
+          helm upgrade --install lilac ./deploy/helm/lilac-planner \
+            --namespace lilac-planner --create-namespace \
+            -f deploy/helm/lilac-planner/values-prod.yaml \
+            -f /tmp/values-overlay.yaml \
+            --wait --timeout 5m
+
+      - name: Verify rollout
+        run: |
+          set -euo pipefail
+          kubectl rollout status deployment/lilac-lilac-planner-backend -n lilac-planner --timeout=180s
+          kubectl rollout status deployment/lilac-lilac-planner-frontend -n lilac-planner --timeout=180s
+
+      - name: Public smoke check
+        env:
+          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
+        run: |
+          set -euo pipefail
+          echo "Checking https://$INGRESS_HOST from outside..."
+          curl -sf --max-time 15 -o /dev/null "https://$INGRESS_HOST"
+          echo "https://$INGRESS_HOST is serving."
+
+      - name: Show cluster status
+        if: always()
+        run: |
+          kubectl get pods -n lilac-planner -o wide
+          echo "--- recent backend logs:"
+          kubectl logs -n lilac-planner -l app.kubernetes.io/component=backend --tail 40 || true
