@@ -15,6 +15,11 @@ output "aks_cluster_name" {
   value = azurerm_kubernetes_cluster.this.name
 }
 
+output "log_analytics_workspace_name" {
+  description = "Container Insights workspace - Portal > this AKS cluster > Insights, or Portal > Log Analytics workspaces > this one > Logs (KQL)."
+  value       = azurerm_log_analytics_workspace.this.name
+}
+
 output "key_vault_name" {
   value = azurerm_key_vault.this.name
 }
