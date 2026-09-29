@@ -46,3 +46,6 @@ deploy/ansible/.vault_pass
 .DS_Store
 
 .idea/
+
+# Markdown docs
+*.md
