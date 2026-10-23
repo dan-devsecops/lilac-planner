@@ -17,11 +17,12 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write # required to push the rendered values to gitops/azure
   id-token: write # required for azure/login's OIDC federated credential exchange
 
 env:
   DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  REPO_URL: git@github.com:dan-devsecops/lilac-planner.git
 
 jobs:
   build:
@@ -98,6 +99,13 @@ jobs:
       - uses: azure/setup-kubectl@v4
       - uses: azure/setup-helm@v4
 
+      - name: Install argocd CLI
+        run: |
+          set -euo pipefail
+          curl -sSL -o /usr/local/bin/argocd \
+            https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
       - name: Get AKS credentials
         run: |
           # --admin: the cluster uses local accounts, not Azure AD RBAC (see
@@ -154,23 +162,75 @@ jobs:
           LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
         run: envsubst '$LETSENCRYPT_EMAIL' < deploy/azure/cluster-issuer.yaml | kubectl apply -f -
 
-      - name: Render Azure-specific values overlay
+      - name: Install/upgrade ArgoCD (idempotent)
+        run: |
+          set -euo pipefail
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update
+          helm upgrade --install argocd argo/argo-cd \
+            -n argocd --create-namespace \
+            -f deploy/azure/argocd-values.yaml \
+            --wait --timeout 5m
+
+      - name: Sync ArgoCD repo-credential secret (deploy key)
+        env:
+          ARGOCD_DEPLOY_KEY: ${{ secrets.ARGOCD_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          kubectl create secret generic lilac-repo-creds \
+            --from-literal=type=git \
+            --from-literal=url="$REPO_URL" \
+            --from-literal=sshPrivateKey="$ARGOCD_DEPLOY_KEY" \
+            --namespace argocd \
+            --dry-run=client -o yaml \
+            | kubectl label --local -f - argocd.argoproj.io/secret-type=repository -o yaml \
+            | kubectl apply -f -
+
+      - name: Apply ArgoCD AppProject + Application
+        run: envsubst '$REPO_URL' < deploy/azure/argocd-app.yaml.tmpl | kubectl apply -f -
+
+      - name: Checkout gitops/azure branch
+        uses: actions/checkout@v6
+        with:
+          ref: gitops/azure
+          path: gitops-azure
+
+      - name: Render Azure values-current.yaml and push to gitops/azure
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
           INGRESS_HOST: ${{ vars.INGRESS_HOST }}
           ADMIN_USERNAME: ${{ vars.ADMIN_USERNAME }}
           ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
-        run: envsubst '$ACR_LOGIN_SERVER $DEPLOY_TAG $INGRESS_HOST $ADMIN_USERNAME $ADMIN_EMAIL' \
-               < deploy/azure/values-overlay.yaml.tmpl > /tmp/values-overlay.yaml
-
-      - name: helm upgrade
         run: |
           set -euo pipefail
-          helm upgrade --install lilac ./deploy/helm/lilac-planner \
-            --namespace lilac-planner --create-namespace \
-            -f deploy/helm/lilac-planner/values-prod.yaml \
-            -f /tmp/values-overlay.yaml \
-            --wait --timeout 5m
+          envsubst '$ACR_LOGIN_SERVER $DEPLOY_TAG $INGRESS_HOST $ADMIN_USERNAME $ADMIN_EMAIL' \
+            < deploy/azure/values-overlay.yaml.tmpl > gitops-azure/deploy/azure/values-current.yaml
+          cd gitops-azure
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/azure/values-current.yaml
+          if git diff --cached --quiet; then
+            echo "values-current.yaml unchanged - skipping commit"
+          else
+            git commit -m "[skip ci] deploy $DEPLOY_TAG"
+            git push origin gitops/azure
+          fi
+
+      - name: Sync via ArgoCD
+        run: |
+          set -euo pipefail
+          kubectl -n argocd port-forward svc/argocd-server 8080:443 >/tmp/argocd-pf.log 2>&1 &
+          PF_PID=$!
+          trap 'kill $PF_PID' EXIT
+          for i in $(seq 1 15); do
+            curl -sk --max-time 2 https://localhost:8080/healthz && break
+            sleep 2
+          done
+          ARGOCD_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret \
+            -o jsonpath='{.data.password}' | base64 -d)
+          argocd login localhost:8080 --username admin --password "$ARGOCD_PW" --insecure
+          argocd app sync lilac-azure --timeout 300
+          argocd app wait lilac-azure --health --timeout 300
 
       - name: Verify rollout
         run: |

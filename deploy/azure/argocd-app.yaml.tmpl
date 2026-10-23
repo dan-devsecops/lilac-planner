@@ -1,0 +1,55 @@
+# AppProject + multi-source Application for the AKS leg, applied by
+# .github/workflows/cd-azure.yml via `envsubst ... | kubectl apply -f -`
+# (idempotent - ArgoCD reconciles whatever's already running on repeat runs).
+#
+# Two sources on one Application, joined by the `ref:`/$values convention
+# (multi-source Applications, Argo CD >=2.6):
+#   - `main`         -> the Helm chart + the static values-prod.yaml layer
+#   - `gitops/azure`  -> the deploy-time values-current.yaml layer, rewritten
+#                        by every successful CD run (see the "Render Azure
+#                        values" + "Push gitops/azure" steps in cd-azure.yml)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: lilac-planner
+  namespace: argocd
+spec:
+  description: Lilac Planner - AKS
+  sourceRepos:
+    - "${REPO_URL}"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: lilac-planner
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lilac-azure
+  namespace: argocd
+spec:
+  project: lilac-planner
+  sources:
+    - repoURL: "${REPO_URL}"
+      targetRevision: main
+      path: deploy/helm/lilac-planner
+      helm:
+        valueFiles:
+          - values-prod.yaml
+          - $values/deploy/azure/values-current.yaml
+    - repoURL: "${REPO_URL}"
+      targetRevision: gitops/azure
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lilac-planner
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
