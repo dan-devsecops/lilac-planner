@@ -185,13 +185,13 @@ jobs:
       - name: Apply ArgoCD AppProject + Application
         run: envsubst '$REPO_URL' < deploy/azure/argocd-app.yaml.tmpl | kubectl apply -f -
 
-      - name: Checkout gitops/azure branch
+      - name: Checkout main for the values-current.yaml commit
         uses: actions/checkout@v6
         with:
-          ref: gitops/azure
-          path: gitops-azure
+          ref: main
+          path: main-checkout
 
-      - name: Render Azure values-current.yaml and push to gitops/azure
+      - name: Render Azure values-current.yaml and push to main
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
           INGRESS_HOST: ${{ vars.INGRESS_HOST }}
@@ -199,9 +199,14 @@ jobs:
           ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
         run: |
           set -euo pipefail
+          # Lands on main, not a separate gitops/azure branch: ArgoCD's Application
+          # is single-source (see argocd-app.yaml.tmpl's comment) - both value
+          # layers have to live on the same revision it syncs from. [skip ci]
+          # keeps this from triggering a pointless ci.yml run; cd-azure.yml itself
+          # is workflow_dispatch-only, so this can't cascade into another deploy.
           envsubst '$ACR_LOGIN_SERVER $DEPLOY_TAG $INGRESS_HOST $ADMIN_USERNAME $ADMIN_EMAIL' \
-            < deploy/azure/values-overlay.yaml.tmpl > gitops-azure/deploy/azure/values-current.yaml
-          cd gitops-azure
+            < deploy/azure/values-overlay.yaml.tmpl > main-checkout/deploy/azure/values-current.yaml
+          cd main-checkout
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add deploy/azure/values-current.yaml
@@ -209,7 +214,7 @@ jobs:
             echo "values-current.yaml unchanged - skipping commit"
           else
             git commit -m "[skip ci] deploy $DEPLOY_TAG"
-            git push origin gitops/azure
+            git push origin main
           fi
 
       - name: Sync via ArgoCD

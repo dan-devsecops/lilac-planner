@@ -1,13 +1,21 @@
-# AppProject + multi-source Application for the AKS leg, applied by
-# .github/workflows/cd-azure.yml via `envsubst ... | kubectl apply -f -`
-# (idempotent - ArgoCD reconciles whatever's already running on repeat runs).
+# AppProject + Application for the AKS leg, applied by .github/workflows/cd-azure.yml
+# via `envsubst ... | kubectl apply -f -` (idempotent - ArgoCD reconciles whatever's
+# already running on repeat runs).
 #
-# Two sources on one Application, joined by the `ref:`/$values convention
-# (multi-source Applications, Argo CD >=2.6):
-#   - `main`         -> the Helm chart + the static values-prod.yaml layer
-#   - `gitops/azure`  -> the deploy-time values-current.yaml layer, rewritten
-#                        by every successful CD run (see the "Render Azure
-#                        values" + "Push gitops/azure" steps in cd-azure.yml)
+# Single source, both value layers on `main`:
+#   - values-prod.yaml       -> static, rarely changes
+#   - ../../azure/values-current.yaml -> deploy-time layer (image tag, ingress
+#     host, etc.), rewritten and committed straight to `main` by cd-azure.yml's
+#     "Render Azure values-current.yaml and push to main" step.
+#
+# NOT a multi-source Application: ArgoCD's $values convention explicitly
+# forbids two sources from the SAME repository at different revisions
+# ("cannot reference a different revision of the same repository") - that's
+# why values-current.yaml has to live on `main` too, not a separate
+# gitops/azure branch, even though a separate branch would otherwise be nicer
+# for keeping bot commits out of main's history. The relative `../../` path
+# below is fine - ArgoCD only restricts symlinks escaping the repo, not plain
+# relative value-file paths within it.
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -33,17 +41,14 @@ metadata:
   namespace: argocd
 spec:
   project: lilac-planner
-  sources:
-    - repoURL: "${REPO_URL}"
-      targetRevision: main
-      path: deploy/helm/lilac-planner
-      helm:
-        valueFiles:
-          - values-prod.yaml
-          - $values/deploy/azure/values-current.yaml
-    - repoURL: "${REPO_URL}"
-      targetRevision: gitops/azure
-      ref: values
+  source:
+    repoURL: "${REPO_URL}"
+    targetRevision: main
+    path: deploy/helm/lilac-planner
+    helm:
+      valueFiles:
+        - values-prod.yaml
+        - ../../azure/values-current.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: lilac-planner
