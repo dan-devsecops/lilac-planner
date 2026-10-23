@@ -16,6 +16,17 @@ backend:
   # managed MariaDB, and the mariadb migrations aren't MySQL-portable - see
   # deploy/terraform/digitalocean-doks/database.tf).
   plannerDb: postgres
+  # PG_URL (db.* below) already points at the PgBouncer pool, not the primary
+  # directly. This is the escape hatch for the one DO-specific field the generic
+  # chart doesn't model: an optional read replica. Blank/missing PG_REPLICA_URL
+  # just means no replica (ReadReplicaDataSourceConfig falls back to the primary).
+  extraEnv:
+    - name: PG_REPLICA_URL
+      valueFrom:
+        secretKeyRef:
+          name: lilac-db
+          key: PG_REPLICA_URL
+          optional: true
 
 frontend:
   image:

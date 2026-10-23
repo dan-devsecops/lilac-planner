@@ -99,13 +99,13 @@ variable "db_version" {
 }
 
 variable "db_size" {
-  description = "Managed DB node size slug."
+  description = "Managed DB node size slug. db-s-1vcpu-1gb is single-node ONLY - DO rejects db_node_count=2 on it with a 422 'invalid layout and size combination'. If you set db_node_count=2, bump this to at least db-s-1vcpu-2gb ($30.45/node/mo vs $15.15) - check doctl databases options slugs --engine pg -o json for which sizes support which node counts before changing either."
   type        = string
   default     = "db-s-1vcpu-1gb"
 }
 
 variable "db_node_count" {
-  description = "1 = single node. 2 = primary + standby (HA, roughly doubles the DB cost)."
+  description = "1 = single node. 2 = primary + standby (HA) - requires db_size to be at least db-s-1vcpu-2gb, see db_size above. Not just 2x the single-node price: the per-node price also goes up with the required size bump (~$61/mo total, not ~$30)."
   type        = number
   default     = 1
 }
@@ -120,4 +120,38 @@ variable "db_user" {
   description = "Application DB user (not the cluster admin user)."
   type        = string
   default     = "planner"
+}
+
+# ---------------- Connection pool (PgBouncer, free - no extra node) ----------------
+
+variable "enable_connection_pool" {
+  description = "Create a PgBouncer connection pool in front of the primary cluster. No extra billable node - just a proxy DO runs alongside the cluster."
+  type        = bool
+  default     = true
+}
+
+variable "db_pool_mode" {
+  description = "PgBouncer pool mode: session | transaction | statement. transaction is the usual default for web-app workloads (short-lived connections, no session state like prepared statements held open)."
+  type        = string
+  default     = "transaction"
+}
+
+variable "db_pool_size" {
+  description = "Number of PgBouncer backend connections held open to the primary - i.e. how many actual Postgres connections the pool is allowed to use, regardless of how many client connections it's serving."
+  type        = number
+  default     = 10
+}
+
+# ---------------- Read replica (separate node, extra cost) ----------------
+
+variable "enable_read_replica" {
+  description = "Create a queryable read-only replica - a SEPARATE feature from db_node_count's HA standby above (that standby is for failover only, never queryable). Adds another billable node."
+  type        = bool
+  default     = false
+}
+
+variable "db_replica_size" {
+  description = "Node size slug for the read replica. Must be the same size or LARGER than db_size (doctl databases replica create --help spells this out explicitly) - DO rejects a smaller replica. Can't actually be sized down for light reporting load, despite being a separate node."
+  type        = string
+  default     = "db-s-1vcpu-1gb"
 }

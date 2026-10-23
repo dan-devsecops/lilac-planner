@@ -11,6 +11,9 @@ spring:
     username: ${PG_USER:planner}
     password: ${PG_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    # Optional DO read replica - see ReadReplicaDataSourceConfig. Blank => falls back to
+    # the primary URL above (no replica provisioned, e.g. local dev or mariadb).
+    replica-url: ${PG_REPLICA_URL:}
   flyway:
     locations: classpath:db/migration/postgresql
     baseline-on-migrate: true

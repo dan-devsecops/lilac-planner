@@ -23,6 +23,18 @@ backend:
   image:
     tag: "${TAG}"
   plannerDb: postgres
+  # PG_URL (the chart's generic db.* fields) already points at the PgBouncer pool,
+  # not the primary directly - see "DB credentials" step in the README. This is the
+  # escape hatch for the one DO-specific field the generic chart doesn't model:
+  # an optional read replica. Blank/missing PG_REPLICA_URL just means no replica
+  # (ReadReplicaDataSourceConfig falls back to the primary).
+  extraEnv:
+    - name: PG_REPLICA_URL
+      valueFrom:
+        secretKeyRef:
+          name: lilac-db
+          key: PG_REPLICA_URL
+          optional: true
 
 frontend:
   image:
