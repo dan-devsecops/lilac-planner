@@ -223,6 +223,11 @@ jobs:
           # pattern seen on the DOKS leg (worked for one curl, then refused
           # the very next connection - a known rough edge, not worth
           # hardening further).
+          #
+          # --core reads argocd-cm/argocd-rbac-cm etc. from the kubeconfig
+          # context's CURRENT namespace, not necessarily "argocd" - az aks
+          # get-credentials defaults that to "default", so set it explicitly.
+          kubectl config set-context --current --namespace=argocd
           argocd login --core
           argocd app sync lilac-azure --core --timeout 300
           argocd app wait lilac-azure --core --health --timeout 300

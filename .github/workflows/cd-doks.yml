@@ -271,6 +271,11 @@ jobs:
           # flag juggling - and it sidesteps a flaky kubectl port-forward
           # pattern (worked for one curl, then refused the very next
           # connection - a known rough edge, not worth hardening further).
+          #
+          # --core reads argocd-cm/argocd-rbac-cm etc. from the kubeconfig
+          # context's CURRENT namespace, not necessarily "argocd" - doctl's
+          # kubeconfig defaults that to "default", so set it explicitly first.
+          kubectl config set-context --current --namespace=argocd
           argocd login --core
           argocd app sync lilac-doks --core --timeout 300
           argocd app wait lilac-doks --core --health --timeout 300
