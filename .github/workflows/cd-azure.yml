@@ -1,14 +1,15 @@
 name: CD (Azure Kubernetes Service)
 
 on:
-  workflow_run:
-    workflows: ["CI (GitHub)"]
-    types: [completed]
-    branches: [main]
+  # Manual-only: AKS isn't an always-on environment like the DO droplet - the
+  # cluster gets torn up/down for testing, so this must not auto-fire on every
+  # push to main (it would just fail whenever the cluster is currently down).
+  # Deploy the AKS leg by running this via "Run workflow", picking whichever
+  # branch/ref you want deployed.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag to deploy (12-char commit SHA). Empty = build & deploy the latest commit on main."
+        description: "Image tag to deploy (12-char commit SHA). Empty = build & deploy the latest commit on the selected ref."
         required: false
         default: ""
 
@@ -21,7 +22,7 @@ permissions:
   id-token: write # required for azure/login's OIDC federated credential exchange
 
 env:
-  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  DEPLOY_SHA: ${{ github.sha }}
   REPO_URL: git@github.com:dan-devsecops/lilac-planner.git
 
 jobs:
@@ -29,10 +30,7 @@ jobs:
     name: Build & push ${{ matrix.component }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: >
-      inputs.tag == '' &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event.workflow_run.conclusion == 'success')
+    if: inputs.tag == ''
     strategy:
       matrix:
         component: [backend, frontend]
@@ -72,9 +70,7 @@ jobs:
     needs: build
     if: >
       always() && !cancelled() &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event.workflow_run.conclusion == 'success')
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     environment: production
     steps:
       - uses: actions/checkout@v6
