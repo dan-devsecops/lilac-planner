@@ -59,6 +59,20 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Pulled in transitively at 2.12.4 by web-push - CVE-2026-107282 (a redirect
+                 replays the original Host header to the new target host), fixed in 2.16.1
+                 (the 3.0.x line is a separate major rewrite, not needed here). Pin both
+                 async-http-client artifacts together since they're released in lockstep. -->
+            <dependency>
+                <groupId>org.asynchttpclient</groupId>
+                <artifactId>async-http-client</artifactId>
+                <version>2.16.1</version>
+            </dependency>
+            <dependency>
+                <groupId>org.asynchttpclient</groupId>
+                <artifactId>async-http-client-netty-utils</artifactId>
+                <version>2.16.1</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
