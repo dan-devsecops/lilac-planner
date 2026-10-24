@@ -9,3 +9,6 @@ region   = "fra1"
 # node_count    = 2
 # registry_name = "lilac-planner"
 # db_size       = "db-s-1vcpu-1gb"
+# db_node_count       = 2     # HA standby - failover only, not queryable
+# enable_connection_pool = true   # default - PgBouncer, no extra node
+# enable_read_replica    = true   # queryable read-only node, extra cost

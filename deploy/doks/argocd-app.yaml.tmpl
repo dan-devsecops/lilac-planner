@@ -1,0 +1,60 @@
+# AppProject + Application for the DOKS leg, applied by .github/workflows/cd-doks.yml
+# via `envsubst ... | kubectl apply -f -` (idempotent - ArgoCD reconciles whatever's
+# already running on repeat runs).
+#
+# Single source, both value layers on `main`:
+#   - values-prod.yaml      -> static, rarely changes
+#   - ../../doks/values-current.yaml -> deploy-time layer (image tag, ingress
+#     host, etc.), rewritten and committed straight to `main` by cd-doks.yml's
+#     "Render DO values-current.yaml and push to main" step.
+#
+# NOT a multi-source Application: ArgoCD's $values convention explicitly
+# forbids two sources from the SAME repository at different revisions
+# ("cannot reference a different revision of the same repository") - that's
+# why values-current.yaml has to live on `main` too, not a separate
+# gitops/doks branch, even though a separate branch would otherwise be nicer
+# for keeping bot commits out of main's history. The relative `../../` path
+# below is fine - ArgoCD only restricts symlinks escaping the repo, not plain
+# relative value-file paths within it.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: lilac-planner
+  namespace: argocd
+spec:
+  description: Lilac Planner - DOKS
+  sourceRepos:
+    - "${REPO_URL}"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: lilac-planner
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lilac-doks
+  namespace: argocd
+spec:
+  project: lilac-planner
+  source:
+    repoURL: "${REPO_URL}"
+    targetRevision: main
+    path: deploy/helm/lilac-planner
+    helm:
+      valueFiles:
+        - values-prod.yaml
+        - ../../doks/values-current.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lilac-planner
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

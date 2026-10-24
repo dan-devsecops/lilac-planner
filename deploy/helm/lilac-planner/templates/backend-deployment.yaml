@@ -9,6 +9,16 @@ spec:
   {{- if not .Values.backend.autoscaling.enabled }}
   replicas: {{ .Values.backend.replicas }}
   {{- end }}
+  # maxSurge: 0 - never schedule an extra pod before removing an old one. The
+  # default (25% surge) needs headroom for replicas+1 pods at once, which a
+  # small/tightly-sized cluster may not have (seen first-hand on the DOKS leg -
+  # a rollout can deadlock waiting on a pod that can never schedule). Costs a
+  # few seconds at reduced capacity (one replica down) instead.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}

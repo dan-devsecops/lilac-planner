@@ -1,14 +1,15 @@
 name: CD (Azure Kubernetes Service)
 
 on:
-  workflow_run:
-    workflows: ["CI (GitHub)"]
-    types: [completed]
-    branches: [main]
+  # Manual-only: AKS isn't an always-on environment like the DO droplet - the
+  # cluster gets torn up/down for testing, so this must not auto-fire on every
+  # push to main (it would just fail whenever the cluster is currently down).
+  # Deploy the AKS leg by running this via "Run workflow", picking whichever
+  # branch/ref you want deployed.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag to deploy (12-char commit SHA). Empty = build & deploy the latest commit on main."
+        description: "Image tag to deploy (12-char commit SHA). Empty = build & deploy the latest commit on the selected ref."
         required: false
         default: ""
 
@@ -17,21 +18,19 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write # required to push the rendered values to gitops/azure
   id-token: write # required for azure/login's OIDC federated credential exchange
 
 env:
-  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  DEPLOY_SHA: ${{ github.sha }}
+  REPO_URL: git@github.com:dan-devsecops/lilac-planner.git
 
 jobs:
   build:
     name: Build & push ${{ matrix.component }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: >
-      inputs.tag == '' &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event.workflow_run.conclusion == 'success')
+    if: inputs.tag == ''
     strategy:
       matrix:
         component: [backend, frontend]
@@ -53,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${DEPLOY_SHA::12}"
-          docker build -t "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component }}:$TAG" \
+          docker build -t "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component
                        -t "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component }}:latest" \
                        "./${{ matrix.component }}"
 
@@ -61,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${DEPLOY_SHA::12}"
-          docker push "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component }}:$TAG"
+          docker push "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component }}:
           docker push "${{ vars.ACR_LOGIN_SERVER }}/lilac-planner-${{ matrix.component }}:latest"
 
   deploy:
@@ -71,9 +70,7 @@ jobs:
     needs: build
     if: >
       always() && !cancelled() &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event.workflow_run.conclusion == 'success')
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     environment: production
     steps:
       - uses: actions/checkout@v6
@@ -98,6 +95,13 @@ jobs:
       - uses: azure/setup-kubectl@v4
       - uses: azure/setup-helm@v4
 
+      - name: Install argocd CLI
+        run: |
+          set -euo pipefail
+          curl -sSL -o /usr/local/bin/argocd \
+            https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
       - name: Get AKS credentials
         run: |
           # --admin: the cluster uses local accounts, not Azure AD RBAC (see
@@ -106,7 +110,7 @@ jobs:
           az aks get-credentials -g "${{ vars.AKS_RG }}" -n "${{ vars.AKS_NAME }}" --admin --overwrite-existing
 
       - name: Ensure namespace
-        run: kubectl create namespace lilac-planner --dry-run=client -o yaml | kubectl apply -f -
+        run: kubectl create namespace lilac-planner --dry-run=client -o yaml | kubectl app
 
       - name: Sync DB + auth secrets from Key Vault
         run: |
@@ -116,9 +120,9 @@ jobs:
           # Key names are PG_* to match backend.plannerDb=postgres in
           # values-overlay.yaml.tmpl (see _helpers.tpl's db.*EnvName helpers).
           kubectl create secret generic lilac-db \
-            --from-literal=PG_USER="$(az keyvault secret show --vault-name "$KV" -n pg-user --query value -o tsv)" \
+            --from-literal=PG_USER="$(az keyvault secret show --vault-name "$KV" -n pg-use
             --from-literal=PG_PASSWORD="$(az keyvault secret show --vault-name "$KV" -n pg-password --query value -o tsv)" \
-            --from-literal=PG_URL="$(az keyvault secret show --vault-name "$KV" -n pg-url --query value -o tsv)" \
+            --from-literal=PG_URL="$(az keyvault secret show --vault-name "$KV" -n pg-url
             --namespace lilac-planner \
             --dry-run=client -o yaml | kubectl apply -f -
 
@@ -126,7 +130,7 @@ jobs:
           # is left blank (values-overlay.yaml.tmpl) - the chart only reads it
           # when bootstrapping the admin.
           kubectl create secret generic lilac-auth \
-            --from-literal=PLANNER_JWT_SECRET="$(az keyvault secret show --vault-name "$KV" -n native-jwt-secret --query value -o tsv)" \
+            --from-literal=PLANNER_JWT_SECRET="$(az keyvault secret show --vault-name "$KVuery value -o tsv)" \
             --from-literal=PLANNER_ADMIN_PASSWORD="$(az keyvault secret show --vault-name "$KV" -n native-admin-password --query value -o tsv)" \
             --namespace lilac-planner \
             --dry-run=client -o yaml | kubectl apply -f -
@@ -152,30 +156,91 @@ jobs:
       - name: Apply ClusterIssuer
         env:
           LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
-        run: envsubst '$LETSENCRYPT_EMAIL' < deploy/azure/cluster-issuer.yaml | kubectl apply -f -
+        run: envsubst '$LETSENCRYPT_EMAIL' < deploy/azure/cluster-issuer.yaml | kubectl ap
 
-      - name: Render Azure-specific values overlay
+      - name: Install/upgrade ArgoCD (idempotent)
+        run: |
+          set -euo pipefail
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update
+          helm upgrade --install argocd argo/argo-cd \
+            -n argocd --create-namespace \
+            -f deploy/azure/argocd-values.yaml \
+            --wait --timeout 5m
+
+      - name: Sync ArgoCD repo-credential secret (deploy key)
+        env:
+          ARGOCD_DEPLOY_KEY: ${{ secrets.ARGOCD_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          kubectl create secret generic lilac-repo-creds \
+            --from-literal=type=git \
+            --from-literal=url="$REPO_URL" \
+            --from-literal=sshPrivateKey="$ARGOCD_DEPLOY_KEY" \
+            --namespace argocd \
+            --dry-run=client -o yaml \
+            | kubectl label --local -f - argocd.argoproj.io/secret-type=repository -o yaml \
+            | kubectl apply -f -
+
+      - name: Apply ArgoCD AppProject + Application
+        run: envsubst '$REPO_URL' < deploy/azure/argocd-app.yaml.tmpl | kubectl apply -f -
+
+      - name: Checkout main for the values-current.yaml commit
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          path: main-checkout
+
+      - name: Render Azure values-current.yaml and push to main
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
           INGRESS_HOST: ${{ vars.INGRESS_HOST }}
           ADMIN_USERNAME: ${{ vars.ADMIN_USERNAME }}
           ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
-        run: envsubst '$ACR_LOGIN_SERVER $DEPLOY_TAG $INGRESS_HOST $ADMIN_USERNAME $ADMIN_EMAIL' \
-               < deploy/azure/values-overlay.yaml.tmpl > /tmp/values-overlay.yaml
-
-      - name: helm upgrade
         run: |
           set -euo pipefail
-          helm upgrade --install lilac ./deploy/helm/lilac-planner \
-            --namespace lilac-planner --create-namespace \
-            -f deploy/helm/lilac-planner/values-prod.yaml \
-            -f /tmp/values-overlay.yaml \
-            --wait --timeout 5m
+          # Lands on main, not a separate gitops/azure branch: ArgoCD's Application
+          # is single-source (see argocd-app.yaml.tmpl's comment) - both value
+          # layers have to live on the same revision it syncs from. [skip ci]
+          # keeps this from triggering a pointless ci.yml run; cd-azure.yml itself
+          # is workflow_dispatch-only, so this can't cascade into another deploy.
+          envsubst '$ACR_LOGIN_SERVER $DEPLOY_TAG $INGRESS_HOST $ADMIN_USERNAME $ADMIN_EMA
+            < deploy/azure/values-overlay.yaml.tmpl > main-checkout/deploy/azure/values-current.yaml
+          cd main-checkout
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/azure/values-current.yaml
+          if git diff --cached --quiet; then
+            echo "values-current.yaml unchanged - skipping commit"
+          else
+            git commit -m "[skip ci] deploy $DEPLOY_TAG"
+            git push origin main
+          fi
+
+      - name: Sync via ArgoCD
+        run: |
+          set -euo pipefail
+          # --core: talk to the Kubernetes API directly via the current
+          # kubeconfig context (already set up by "Get AKS credentials" above)
+          # instead of connecting to argocd-server over the network. No
+          # port-forward, no admin-password lookup, no plaintext/insecure
+          # flag juggling - and it sidesteps a flaky kubectl port-forward
+          # pattern seen on the DOKS leg (worked for one curl, then refused
+          # the very next connection - a known rough edge, not worth
+          # hardening further).
+          #
+          # --core reads argocd-cm/argocd-rbac-cm etc. from the kubeconfig
+          # context's CURRENT namespace, not necessarily "argocd" - az aks
+          # get-credentials defaults that to "default", so set it explicitly.
+          kubectl config set-context --current --namespace=argocd
+          argocd login --core
+          argocd app sync lilac-azure --core --timeout 300
+          argocd app wait lilac-azure --core --health --timeout 300
 
       - name: Verify rollout
         run: |
           set -euo pipefail
-          kubectl rollout status deployment/lilac-lilac-planner-backend -n lilac-planner --timeout=180s
+          kubectl rollout status deployment/lilac-lilac-planner-backend -n lilac-planner -
           kubectl rollout status deployment/lilac-lilac-planner-frontend -n lilac-planner --timeout=180s
 
       - name: Public smoke check
@@ -192,4 +257,4 @@ jobs:
         run: |
           kubectl get pods -n lilac-planner -o wide
           echo "--- recent backend logs:"
-          kubectl logs -n lilac-planner -l app.kubernetes.io/component=backend --tail 40 || true
+          kubectl logs -n lilac-planner -l app.kubernetes.io/component=backend --tail 40 || true 

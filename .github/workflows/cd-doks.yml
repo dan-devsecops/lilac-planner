@@ -1,14 +1,15 @@
 name: CD (DigitalOcean Kubernetes)
 
 on:
-  workflow_run:
-    workflows: ["CI (GitHub)"]
-    types: [completed]
-    branches: [main]
+  # Manual-only: DOKS isn't an always-on environment like the DO droplet - the
+  # cluster gets torn up/down for testing, so this must not auto-fire on every
+  # push to main (it would just fail whenever the cluster is currently down).
+  # Deploy the DOKS leg by running this via "Run workflow", picking whichever
+  # branch/ref you want deployed.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag to deploy (12-char commit SHA). Empty = build & deploy the latest commit on main."
+        description: "Image tag to deploy (12-char commit SHA). Empty = build & deploy the latest commit on the selected ref."
         required: false
         default: ""
 
@@ -17,21 +18,19 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write # required to push the rendered values to gitops/doks
 
 env:
-  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  DEPLOY_SHA: ${{ github.sha }}
   REGISTRY_SERVER: registry.digitalocean.com/${{ vars.DO_REGISTRY_NAME }}
+  REPO_URL: git@github.com:dan-devsecops/lilac-planner.git
 
 jobs:
   build:
     name: Build & push ${{ matrix.component }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: >
-      inputs.tag == '' &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event.workflow_run.conclusion == 'success')
+    if: inputs.tag == ''
     strategy:
       matrix:
         component: [backend, frontend]
@@ -69,9 +68,7 @@ jobs:
     needs: build
     if: >
       always() && !cancelled() &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event.workflow_run.conclusion == 'success')
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     environment: production
     steps:
       - uses: actions/checkout@v6
@@ -94,6 +91,13 @@ jobs:
       - uses: azure/setup-kubectl@v4
       - uses: azure/setup-helm@v4
 
+      - name: Install argocd CLI
+        run: |
+          set -euo pipefail
+          curl -sSL -o /usr/local/bin/argocd \
+            https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
       - name: Get DOKS kubeconfig
         run: doctl kubernetes cluster kubeconfig save "${{ vars.DO_CLUSTER_NAME }}"
 
@@ -111,19 +115,82 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
           rm -f /tmp/docr-config.json
 
-      - name: Sync DB secret (from Terraform outputs stored as GitHub Secrets)
+      - name: Sync DB secret (fetched live from DO - no stored DB credentials/URLs in GitHub at all)
         env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_URL: ${{ secrets.DB_URL }}
+          DB_CLUSTER_NAME: ${{ vars.DO_DB_CLUSTER_NAME }}
+          DB_POOL_NAME: ${{ vars.DO_DB_POOL_NAME }}
+          DB_REPLICA_NAME: ${{ vars.DO_DB_REPLICA_NAME }}
         run: |
           set -euo pipefail
+          # Only DO_TOKEN (already required above) and three stable NAME
+          # variables are needed here - no DB_USER/DB_PASSWORD/DB_URL secrets.
+          # The cluster/pool/replica are looked up live by name every run, so
+          # nothing goes stale when DOKS + its DB get torn down and recreated
+          # for testing - the names (derived from terraform's name_prefix) are
+          # the only thing that has to stay the same across recreations.
+          DB_CLUSTER_ID=$(doctl databases list --format ID,Name --no-header \
+            | awk -v n="$DB_CLUSTER_NAME" '$2==n{print $1; exit}')
+          if [ -z "$DB_CLUSTER_ID" ]; then
+            echo "No DB cluster named '$DB_CLUSTER_NAME' found - is it provisioned, and does DO_DB_CLUSTER_NAME match terraform output db_cluster_name?" >&2
+            exit 1
+          fi
+
+          # NOT `doctl databases connection` - that always returns the cluster's admin
+          # user (doadmin/defaultdb), unrelated to the app's own "planner" user that
+          # the connection pool below is actually scoped to (DO pools are locked to one
+          # specific user; authenticating as doadmin through a pool configured for
+          # planner doesn't work). Get the pool's real user, then that user's own
+          # password - both tied to DB_POOL_NAME so they can't drift apart.
+          POOL_LINE=$(doctl databases pool list "$DB_CLUSTER_ID" --format Name,User,Database,URI --no-header \
+            | awk -v n="$DB_POOL_NAME" '$1==n{print; exit}')
+          if [ -z "$POOL_LINE" ]; then
+            echo "No connection pool named '$DB_POOL_NAME' found - is it provisioned, and does DO_DB_POOL_NAME match terraform output db_pool_name?" >&2
+            exit 1
+          fi
+          PG_USER=$(echo "$POOL_LINE" | awk '{print $2}')
+          DB_NAME=$(echo "$POOL_LINE" | awk '{print $3}')
+          POOL_URI=$(echo "$POOL_LINE" | awk '{print $4}')
+          PG_PASSWORD=$(doctl databases user get "$DB_CLUSTER_ID" "$PG_USER" --format Password --no-header)
+
+          # Through PgBouncer (transaction mode), not the bare primary - see database.tf.
+          # prepareThreshold=0 disables pgjdbc server-side prepared statements, required
+          # under transaction-mode pooling (a statement can get bound to a physical
+          # connection PgBouncer then swaps out mid-session otherwise).
+          #
+          # doctl's --format URI returns a full libpq URI (postgresql://user:pass@host:port/db?...).
+          # JDBC URLs don't support that user:pass@ userinfo syntax at all (credentials go
+          # separately, hence PG_USER/PG_PASSWORD above) - stripping only the scheme prefix
+          # and leaving user:pass@ in place makes pgjdbc try to resolve "user:pass@host" as
+          # one literal hostname (UnknownHostException). Strip the whole userinfo segment too.
+          PG_URL="jdbc:postgresql://$(echo "$POOL_URI" | sed -E 's#^postgresql://[^@]*@##')&prepareThreshold=0"
+
+          PG_REPLICA_URL=""
+          if doctl databases replica list "$DB_CLUSTER_ID" --format Name --no-header | grep -qx "$DB_REPLICA_NAME"; then
+            REPLICA_URI=$(doctl databases replica get "$DB_CLUSTER_ID" "$DB_REPLICA_NAME" --format URI --no-header)
+            # doctl's replica URI always points at "defaultdb" (the cluster's admin
+            # default database), not the app's real database - unlike the pool above,
+            # there's no way to ask doctl for a replica URI scoped to a specific db.
+            # Swap the path segment for the real $DB_NAME, keeping host:port and the
+            # query string (?sslmode=require) - without this, reads routed to the
+            # replica (ReadReplicaDataSourceConfig, any @Transactional(readOnly=true)
+            # call) silently hit the wrong database and fail with "relation ... does
+            # not exist" even though the table exists fine on the primary.
+            PG_REPLICA_URL="jdbc:postgresql://$(echo "$REPLICA_URI" | sed -E "s#^postgresql://[^@]*@([^/]+)/[^?]*#\1/$DB_NAME#")"
+          fi
+
+          # These never passed through `secrets.*`, so GitHub won't auto-redact them
+          # from logs - mask explicitly.
+          echo "::add-mask::$PG_PASSWORD"
+          echo "::add-mask::$PG_URL"
+          if [ -n "$PG_REPLICA_URL" ]; then echo "::add-mask::$PG_REPLICA_URL"; fi
+
           # Key names are PG_* to match backend.plannerDb=postgres in
           # values-overlay.yaml.tmpl (see _helpers.tpl's db.*EnvName helpers).
           kubectl create secret generic lilac-db \
-            --from-literal=PG_USER="$DB_USER" \
-            --from-literal=PG_PASSWORD="$DB_PASSWORD" \
-            --from-literal=PG_URL="$DB_URL" \
+            --from-literal=PG_USER="$PG_USER" \
+            --from-literal=PG_PASSWORD="$PG_PASSWORD" \
+            --from-literal=PG_URL="$PG_URL" \
+            --from-literal=PG_REPLICA_URL="$PG_REPLICA_URL" \
             --namespace lilac-planner \
             --dry-run=client -o yaml | kubectl apply -f -
 
@@ -143,20 +210,107 @@ jobs:
           LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
         run: envsubst '$LETSENCRYPT_EMAIL' < deploy/doks/cluster-issuer.yaml | kubectl apply -f -
 
-      - name: Render DO-specific values overlay
-        env:
-          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
-        run: envsubst '$REGISTRY_SERVER $DEPLOY_TAG $INGRESS_HOST' \
-               < deploy/doks/values-overlay.yaml.tmpl > /tmp/values-overlay.yaml
-
-      - name: helm upgrade
+      - name: Resolve INGRESS_HOST (nip.io from the LB IP, unless overridden)
         run: |
           set -euo pipefail
-          helm upgrade --install lilac ./deploy/helm/lilac-planner \
-            --namespace lilac-planner --create-namespace \
-            -f deploy/helm/lilac-planner/values-prod.yaml \
-            -f /tmp/values-overlay.yaml \
+          if [ -n "${{ vars.INGRESS_HOST }}" ]; then
+            echo "INGRESS_HOST=${{ vars.INGRESS_HOST }}" >> "$GITHUB_ENV"
+            echo "Using the configured INGRESS_HOST variable: ${{ vars.INGRESS_HOST }}"
+            exit 0
+          fi
+
+          # No INGRESS_HOST variable set - this cluster gets torn down/recreated
+          # for testing, so the LB IP (and therefore the nip.io hostname) changes
+          # every time. Derive it fresh from the Load Balancer instead of relying
+          # on a GitHub variable someone has to remember to update.
+          echo "No INGRESS_HOST variable set - deriving one from the ingress-nginx LB IP..."
+          LB_IP=""
+          for i in $(seq 1 30); do
+            LB_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            [ -n "$LB_IP" ] && break
+            sleep 10
+          done
+          if [ -z "$LB_IP" ]; then
+            echo "Timed out waiting for the ingress-nginx LoadBalancer to get an external IP." >&2
+            exit 1
+          fi
+
+          echo "INGRESS_HOST=planner.${LB_IP}.nip.io" >> "$GITHUB_ENV"
+          echo "Derived INGRESS_HOST=planner.${LB_IP}.nip.io from LB IP $LB_IP"
+
+      - name: Install/upgrade ArgoCD (idempotent)
+        run: |
+          set -euo pipefail
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update
+          helm upgrade --install argocd argo/argo-cd \
+            -n argocd --create-namespace \
+            -f deploy/doks/argocd-values.yaml \
             --wait --timeout 5m
+
+      - name: Sync ArgoCD repo-credential secret (deploy key)
+        env:
+          ARGOCD_DEPLOY_KEY: ${{ secrets.ARGOCD_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          kubectl create secret generic lilac-repo-creds \
+            --from-literal=type=git \
+            --from-literal=url="$REPO_URL" \
+            --from-literal=sshPrivateKey="$ARGOCD_DEPLOY_KEY" \
+            --namespace argocd \
+            --dry-run=client -o yaml \
+            | kubectl label --local -f - argocd.argoproj.io/secret-type=repository -o yaml \
+            | kubectl apply -f -
+
+      - name: Apply ArgoCD AppProject + Application
+        run: envsubst '$REPO_URL' < deploy/doks/argocd-app.yaml.tmpl | kubectl apply -f -
+
+      - name: Checkout main for the values-current.yaml commit
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          path: main-checkout
+
+      - name: Render DO values-current.yaml and push to main
+        run: |
+          set -euo pipefail
+          # Lands on main, not a separate gitops/doks branch: ArgoCD's Application
+          # is single-source (see argocd-app.yaml.tmpl's comment) - both value
+          # layers have to live on the same revision it syncs from. [skip ci]
+          # keeps this from triggering a pointless ci.yml run; cd-doks.yml itself
+          # is workflow_dispatch-only, so this can't cascade into another deploy.
+          envsubst '$REGISTRY_SERVER $DEPLOY_TAG $INGRESS_HOST' \
+            < deploy/doks/values-overlay.yaml.tmpl > main-checkout/deploy/doks/values-current.yaml
+          cd main-checkout
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/doks/values-current.yaml
+          if git diff --cached --quiet; then
+            echo "values-current.yaml unchanged - skipping commit"
+          else
+            git commit -m "[skip ci] deploy $DEPLOY_TAG"
+            git push origin main
+          fi
+
+      - name: Sync via ArgoCD
+        run: |
+          set -euo pipefail
+          # --core: talk to the Kubernetes API directly via the current
+          # kubeconfig context (already set up by "Get DOKS kubeconfig" above)
+          # instead of connecting to argocd-server over the network. No
+          # port-forward, no admin-password lookup, no plaintext/insecure
+          # flag juggling - and it sidesteps a flaky kubectl port-forward
+          # pattern (worked for one curl, then refused the very next
+          # connection - a known rough edge, not worth hardening further).
+          #
+          # --core reads argocd-cm/argocd-rbac-cm etc. from the kubeconfig
+          # context's CURRENT namespace, not necessarily "argocd" - doctl's
+          # kubeconfig defaults that to "default", so set it explicitly first.
+          kubectl config set-context --current --namespace=argocd
+          argocd login --core
+          argocd app sync lilac-doks --core --timeout 300
+          argocd app wait lilac-doks --core --health --timeout 300
 
       - name: Verify rollout
         run: |
@@ -165,8 +319,6 @@ jobs:
           kubectl rollout status deployment/lilac-lilac-planner-frontend -n lilac-planner --timeout=180s
 
       - name: Public smoke check
-        env:
-          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
         run: |
           set -euo pipefail
           echo "Checking https://$INGRESS_HOST from outside..."

@@ -1,0 +1,15 @@
+# Helm values for the `argo-cd` chart, installed by .github/workflows/cd-doks.yml
+# (helm repo: https://argoproj.github.io/argo-helm). ArgoCD stays internal-only -
+# no ingress, accessed only via `kubectl -n argocd port-forward svc/argocd-server
+# 8080:443` (by the workflow itself, and by a human for manual inspection).
+
+configs:
+  params:
+    # No TLS termination in front of argocd-server since there's no ingress -
+    # server.insecure lets the CD workflow's port-forward speak plain HTTP/2
+    # to it without cert warnings.
+    server.insecure: true
+
+server:
+  ingress:
+    enabled: false

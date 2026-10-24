@@ -239,7 +239,10 @@ public class JpaPlannerStore implements PlannerStore {
         return dayRepo.findFirstByUserIdAndDate(userId, date).map(this::toDomainDay);
     }
 
+    // readOnly = true routes this to the DO read replica on postgres, via
+    // ReadReplicaDataSourceConfig - StatisticsService's only persistence call.
     @Override
+    @Transactional(readOnly = true)
     public List<Day> findDaysInRange(String userId, LocalDate from, LocalDate to) {
         return dayRepo.findByUserIdAndDateBetweenOrderByDate(userId, from, to)
                 .stream().map(this::toDomainDay).toList();

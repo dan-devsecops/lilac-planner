@@ -1,0 +1,9 @@
+# CVE-2026-47884 / CVE-2026-47890 - Spring Framework 6.2.18 (spring-webmvc), CRITICAL.
+# No fix exists in the 6.x line - Trivy's only listed fixed version is 7.0.9, which
+# requires a Spring Boot 4 migration (major, breaking - tracked separately, out of
+# scope for this branch). Both CVEs require server-side view resolution (XsltView /
+# SSE+view) - this backend is a pure @RestController JSON API with zero View/
+# ViewResolver/SseEmitter usage anywhere (verified via grep across backend/src/main/java),
+# so the vulnerable code paths are unreachable. Risk accepted until the Boot 4 migration.
+CVE-2026-47884
+CVE-2026-47890
