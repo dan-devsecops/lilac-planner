@@ -135,20 +135,38 @@ jobs:
             exit 1
           fi
 
-          PG_USER=$(doctl databases connection "$DB_CLUSTER_ID" --format User --no-header)
-          PG_PASSWORD=$(doctl databases connection "$DB_CLUSTER_ID" --format Password --no-header)
+          # NOT `doctl databases connection` - that always returns the cluster's admin
+          # user (doadmin/defaultdb), unrelated to the app's own "planner" user that
+          # the connection pool below is actually scoped to (DO pools are locked to one
+          # specific user; authenticating as doadmin through a pool configured for
+          # planner doesn't work). Get the pool's real user, then that user's own
+          # password - both tied to DB_POOL_NAME so they can't drift apart.
+          POOL_LINE=$(doctl databases pool list "$DB_CLUSTER_ID" --format Name,User,URI --no-header \
+            | awk -v n="$DB_POOL_NAME" '$1==n{print; exit}')
+          if [ -z "$POOL_LINE" ]; then
+            echo "No connection pool named '$DB_POOL_NAME' found - is it provisioned, and does DO_DB_POOL_NAME match terraform output db_pool_name?" >&2
+            exit 1
+          fi
+          PG_USER=$(echo "$POOL_LINE" | awk '{print $2}')
+          POOL_URI=$(echo "$POOL_LINE" | awk '{print $3}')
+          PG_PASSWORD=$(doctl databases user get "$DB_CLUSTER_ID" "$PG_USER" --format Password --no-header)
+
           # Through PgBouncer (transaction mode), not the bare primary - see database.tf.
           # prepareThreshold=0 disables pgjdbc server-side prepared statements, required
           # under transaction-mode pooling (a statement can get bound to a physical
           # connection PgBouncer then swaps out mid-session otherwise).
-          POOL_URI=$(doctl databases pool list "$DB_CLUSTER_ID" --format Name,URI --no-header \
-            | awk -v n="$DB_POOL_NAME" '$1==n{print $2; exit}')
-          PG_URL="jdbc:postgresql://${POOL_URI#postgresql://}&prepareThreshold=0"
+          #
+          # doctl's --format URI returns a full libpq URI (postgresql://user:pass@host:port/db?...).
+          # JDBC URLs don't support that user:pass@ userinfo syntax at all (credentials go
+          # separately, hence PG_USER/PG_PASSWORD above) - stripping only the scheme prefix
+          # and leaving user:pass@ in place makes pgjdbc try to resolve "user:pass@host" as
+          # one literal hostname (UnknownHostException). Strip the whole userinfo segment too.
+          PG_URL="jdbc:postgresql://$(echo "$POOL_URI" | sed -E 's#^postgresql://[^@]*@##')&prepareThreshold=0"
 
           PG_REPLICA_URL=""
           if doctl databases replica list "$DB_CLUSTER_ID" --format Name --no-header | grep -qx "$DB_REPLICA_NAME"; then
             REPLICA_URI=$(doctl databases replica get "$DB_CLUSTER_ID" "$DB_REPLICA_NAME" --format URI --no-header)
-            PG_REPLICA_URL="jdbc:postgresql://${REPLICA_URI#postgresql://}"
+            PG_REPLICA_URL="jdbc:postgresql://$(echo "$REPLICA_URI" | sed -E 's#^postgresql://[^@]*@##')"
           fi
 
           # These never passed through `secrets.*`, so GitHub won't auto-redact them
