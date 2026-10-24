@@ -315,8 +315,10 @@ jobs:
       - name: Verify rollout
         run: |
           set -euo pipefail
-          kubectl rollout status deployment/lilac-lilac-planner-backend -n lilac-planner --timeout=180s
-          kubectl rollout status deployment/lilac-lilac-planner-frontend -n lilac-planner --timeout=180s
+          # lilac-doks- not lilac-: ArgoCD names the Helm release after the
+          # Application (lilac-doks), not the old pre-ArgoCD "lilac" release.
+          kubectl rollout status deployment/lilac-doks-lilac-planner-backend -n lilac-planner --timeout=180s
+          kubectl rollout status deployment/lilac-doks-lilac-planner-frontend -n lilac-planner --timeout=180s
 
       - name: Public smoke check
         run: |
