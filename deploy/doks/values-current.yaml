@@ -10,7 +10,7 @@ image:
 
 backend:
   image:
-    tag: "f78f537d14ad"
+    tag: "f3e107b46310"
   corsAllowedOrigins: "https://planner.209.38.54.254.nip.io"
   # digitalocean-doks provisions a managed Postgres cluster (DO has no
   # managed MariaDB, and the mariadb migrations aren't MySQL-portable - see
@@ -30,7 +30,7 @@ backend:
 
 frontend:
   image:
-    tag: "f78f537d14ad"
+    tag: "f3e107b46310"
 
 db:
   mode: external
