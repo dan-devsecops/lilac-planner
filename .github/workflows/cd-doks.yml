@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write # required to push the rendered values to gitops/doks
+  contents: write # required to push the rendered values-current.yaml to main
 
 env:
   DEPLOY_SHA: ${{ github.sha }}
