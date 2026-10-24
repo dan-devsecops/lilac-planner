@@ -1,0 +1,47 @@
+# Runtime overlay applied on top of deploy/helm/lilac-planner/values-prod.yaml
+# by .github/workflows/cd-doks.yml. Values here are only known at deploy time
+# (image tag, DOCR host, the pull/DB secrets the workflow just created, the
+# domain) so they're templated with `envsubst` rather than hardcoded.
+
+image:
+  registry: "registry.digitalocean.com/lilac-planner"
+  pullSecrets:
+    - name: docr-pull-secret
+
+backend:
+  image:
+    tag: "70ca576c4b0e"
+  corsAllowedOrigins: "https://planner.209.38.54.254.nip.io"
+  # digitalocean-doks provisions a managed Postgres cluster (DO has no
+  # managed MariaDB, and the mariadb migrations aren't MySQL-portable - see
+  # deploy/terraform/digitalocean-doks/database.tf).
+  plannerDb: postgres
+  # PG_URL (db.* below) already points at the PgBouncer pool, not the primary
+  # directly. This is the escape hatch for the one DO-specific field the generic
+  # chart doesn't model: an optional read replica. Blank/missing PG_REPLICA_URL
+  # just means no replica (ReadReplicaDataSourceConfig falls back to the primary).
+  extraEnv:
+    - name: PG_REPLICA_URL
+      valueFrom:
+        secretKeyRef:
+          name: lilac-db
+          key: PG_REPLICA_URL
+          optional: true
+
+frontend:
+  image:
+    tag: "70ca576c4b0e"
+
+db:
+  mode: external
+  existingSecret: lilac-db
+
+ingress:
+  enabled: true
+  className: nginx
+  host: "planner.209.38.54.254.nip.io"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: lilac-tls
