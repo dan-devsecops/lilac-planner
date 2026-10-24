@@ -141,14 +141,15 @@ jobs:
           # specific user; authenticating as doadmin through a pool configured for
           # planner doesn't work). Get the pool's real user, then that user's own
           # password - both tied to DB_POOL_NAME so they can't drift apart.
-          POOL_LINE=$(doctl databases pool list "$DB_CLUSTER_ID" --format Name,User,URI --no-header \
+          POOL_LINE=$(doctl databases pool list "$DB_CLUSTER_ID" --format Name,User,Database,URI --no-header \
             | awk -v n="$DB_POOL_NAME" '$1==n{print; exit}')
           if [ -z "$POOL_LINE" ]; then
             echo "No connection pool named '$DB_POOL_NAME' found - is it provisioned, and does DO_DB_POOL_NAME match terraform output db_pool_name?" >&2
             exit 1
           fi
           PG_USER=$(echo "$POOL_LINE" | awk '{print $2}')
-          POOL_URI=$(echo "$POOL_LINE" | awk '{print $3}')
+          DB_NAME=$(echo "$POOL_LINE" | awk '{print $3}')
+          POOL_URI=$(echo "$POOL_LINE" | awk '{print $4}')
           PG_PASSWORD=$(doctl databases user get "$DB_CLUSTER_ID" "$PG_USER" --format Password --no-header)
 
           # Through PgBouncer (transaction mode), not the bare primary - see database.tf.
@@ -166,7 +167,15 @@ jobs:
           PG_REPLICA_URL=""
           if doctl databases replica list "$DB_CLUSTER_ID" --format Name --no-header | grep -qx "$DB_REPLICA_NAME"; then
             REPLICA_URI=$(doctl databases replica get "$DB_CLUSTER_ID" "$DB_REPLICA_NAME" --format URI --no-header)
-            PG_REPLICA_URL="jdbc:postgresql://$(echo "$REPLICA_URI" | sed -E 's#^postgresql://[^@]*@##')"
+            # doctl's replica URI always points at "defaultdb" (the cluster's admin
+            # default database), not the app's real database - unlike the pool above,
+            # there's no way to ask doctl for a replica URI scoped to a specific db.
+            # Swap the path segment for the real $DB_NAME, keeping host:port and the
+            # query string (?sslmode=require) - without this, reads routed to the
+            # replica (ReadReplicaDataSourceConfig, any @Transactional(readOnly=true)
+            # call) silently hit the wrong database and fail with "relation ... does
+            # not exist" even though the table exists fine on the primary.
+            PG_REPLICA_URL="jdbc:postgresql://$(echo "$REPLICA_URI" | sed -E "s#^postgresql://[^@]*@([^/]+)/[^?]*#\1/$DB_NAME#")"
           fi
 
           # These never passed through `secrets.*`, so GitHub won't auto-redact them
