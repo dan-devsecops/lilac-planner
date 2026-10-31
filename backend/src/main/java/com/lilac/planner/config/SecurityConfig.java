@@ -84,7 +84,7 @@ public class SecurityConfig {
         // metrics chain case where this combination (httpBasic + no explicit STATELESS) was
         // actually unsafe.
         http
-            .csrf(csrf -> csrf.disable())
+            .csrf(csrf -> csrf.disable()) //NOSONAR - reviewed safe, see rationale above
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .cors(Customizer.withDefaults());
 
@@ -144,8 +144,12 @@ public class SecurityConfig {
     @Bean
     @Order(0)
     public SecurityFilterChain metricsFilterChain(HttpSecurity http, AuthProperties auth) throws Exception {
+        // CSRF-disable hotspot, reviewed safe: STATELESS session policy means no auth context
+        // is ever persisted to a cookie-backed HttpSession, and the only credential mechanism
+        // is httpBasic() sent explicitly per request - no ambient cookie for a cross-site
+        // request to ride on. See b9a20aa for the prior unsafe variant of this same chain.
         http.securityMatcher("/actuator/prometheus")
-                .csrf(csrf -> csrf.disable())
+                .csrf(csrf -> csrf.disable()) //NOSONAR - reviewed safe, see comment above
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         if (auth.isNone()) {
             http.authorizeHttpRequests(reg -> reg.anyRequest().permitAll());
