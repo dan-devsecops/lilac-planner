@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -25,13 +26,16 @@ public class TaskRolloverService {
 
     private final PlannerStore store;
 
+    // Overridable in tests via ReflectionTestUtils, mirroring PushAlarmDispatchService's clock seam.
+    private Clock clock = Clock.systemUTC();
+
     public TaskRolloverService(PlannerStore store) {
         this.store = store;
     }
 
     @Scheduled(cron = "0 0 0 * * *")
     public void rolloverIncompleteTasks() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         LocalDate yesterday = today.minusDays(1);
         log.info("Rolling over incomplete tasks from {} to {}", yesterday, today);
         // One user's bad data must never abort the loop for everyone after them.
