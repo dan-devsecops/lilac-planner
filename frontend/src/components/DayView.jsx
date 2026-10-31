@@ -15,7 +15,7 @@ import StickerShelf from './StickerShelf.jsx';
 function movedTitle(title) {
   const m = title.match(/^(.*) \(moved(?: x(\d+))?\)$/);
   if (m) {
-    const count = m[2] ? parseInt(m[2], 10) : 1;
+    const count = m[2] ? Number.parseInt(m[2], 10) : 1;
     return `${m[1]} (moved x${count + 1})`;
   }
   return `${title} (moved)`;
