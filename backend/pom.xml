@@ -29,6 +29,10 @@
         <testcontainers.version>1.21.4</testcontainers.version>
         <aws.sdk.version>2.46.15</aws.sdk.version>
         <tomcat.version>10.1.60</tomcat.version>
+        <sonar.projectKey>lilac-planner-backend</sonar.projectKey>
+        <sonar.projectName>Lilac Planner - Backend</sonar.projectName>
+        <sonar.java.coveragePlugin>jacoco</sonar.java.coveragePlugin>
+        <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco-merged/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
     <dependencyManagement>
@@ -328,6 +332,11 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.sonarsource.scanner.maven</groupId>
+                <artifactId>sonar-maven-plugin</artifactId>
+                <version>4.0.0.4121</version>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
