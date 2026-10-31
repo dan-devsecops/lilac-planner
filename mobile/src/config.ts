@@ -11,9 +11,9 @@ import { Platform } from 'react-native';
  * what happens when this is misconfigured. Override via EXPO_PUBLIC_API_BASE_URL for a
  * physical device on the same LAN (http://<LAN-IP>:8090) or a production build (https://<DOMAIN>).
  */
-// NOSONAR(typescript:S5332) - dev-only defaults for the emulator alias/localhost, which have no
-// TLS cert; production overrides this via EXPO_PUBLIC_API_BASE_URL with an https:// origin.
+// Dev-only defaults below use http:// for the emulator alias/localhost, which have no TLS cert;
+// production overrides this via EXPO_PUBLIC_API_BASE_URL with an https:// origin.
 export const API_ORIGIN =
-  process.env.EXPO_PUBLIC_API_BASE_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:8090' : 'http://localhost:8090');
+  process.env.EXPO_PUBLIC_API_BASE_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:8090' : 'http://localhost:8090'); // NOSONAR
 
 export const API_BASE = `${API_ORIGIN}/api/v1`;
