@@ -15,9 +15,9 @@ function base64Decode(input: string): string {
     const chr1 = (enc1 << 2) | (enc2 >> 4);
     const chr2 = ((enc2 & 15) << 4) | (enc3 >> 2);
     const chr3 = ((enc3 & 3) << 6) | enc4;
-    output += String.fromCharCode(chr1);
-    if (enc3 !== -1) output += String.fromCharCode(chr2);
-    if (enc4 !== -1) output += String.fromCharCode(chr3);
+    output += String.fromCodePoint(chr1);
+    if (enc3 !== -1) output += String.fromCodePoint(chr2);
+    if (enc4 !== -1) output += String.fromCodePoint(chr3);
   }
   return output;
 }
