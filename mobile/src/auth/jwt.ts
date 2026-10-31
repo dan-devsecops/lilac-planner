@@ -33,7 +33,7 @@ export interface JwtPayload {
 
 export function decodeJwtPayload(token: string): JwtPayload | null {
   try {
-    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = token.split('.')[1].replaceAll('-', '+').replaceAll('_', '/');
     const json = decodeURIComponent(
       base64Decode(payload)
         .split('')
