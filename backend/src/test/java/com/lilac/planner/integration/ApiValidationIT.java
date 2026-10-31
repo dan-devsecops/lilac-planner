@@ -257,7 +257,13 @@ class ApiValidationIT {
     @Test
     @DisplayName("PUT reorder on a day that does not exist returns 404")
     void reorder_unknownDay_returns404() throws Exception {
-        mvc.perform(put("/api/v1/days/2099-04-04/tasks/reorder")
+        // 2098, not 2099: every other IT class in this shared Spring context anchors its
+        // fixtures on a 2099-xx-xx date and recurrence only materializes forward (plusDays/
+        // plusWeeks/...), so a 2098 date can never be created as a side effect of a DAILY/
+        // WEEKLY recurrence horizon from one of those tests (e.g. RecurrenceIT's DAILY task
+        // anchored 2099-03-10 pre-creates through 2099-04-09, which previously collided with
+        // 2099-04-04 here and made this day already exist).
+        mvc.perform(put("/api/v1/days/2098-12-31/tasks/reorder")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("[\"1\"]"))
                 .andExpect(status().isNotFound());
