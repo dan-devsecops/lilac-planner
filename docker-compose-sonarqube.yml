@@ -1,15 +1,26 @@
-# Self-hosted SonarQube Community Edition (SAST + code quality), used by the
-# `backend-verify` and `frontend` CI jobs. Not part of the default dev/prod stack -
-# bring it up once on the CI runner host (or wherever CI can reach it over the network):
+# Self-hosted SonarQube Community Edition (SAST + code quality) - local-only,
+# manual tooling. Not part of the default dev/prod stack, and deliberately NOT
+# wired into GitHub Actions ci.yml: this repo is public, and GitHub Actions
+# self-hosted runners must never be used on a public repo - a workflow run
+# triggered by any fork's pull_request can execute arbitrary code on whatever
+# host the runner is registered on. Bring this up when you want to run a scan
+# by hand:
 #
 #   docker compose -f docker-compose-sonarqube.yml up -d
 #
 # First-run setup (one-time, manual):
 #   1. Open http://localhost:9000, log in with admin/admin, set a new password.
-#   2. Create two projects: lilac-planner-backend, lilac-planner-frontend.
-#   3. Generate a token (My Account → Security) and add it to the Forgejo repo's
-#      secrets as SONAR_TOKEN; add SONAR_HOST_URL (e.g. http://localhost:9000).
-#      Until both secrets exist, the CI Sonar steps are skipped automatically.
+#   2. Create two projects with these exact keys (they must match
+#      `sonar.projectKey` in backend/pom.xml and frontend/sonar-project.properties):
+#      lilac-planner-backend, lilac-planner-frontend.
+#   3. My Account → Security → Generate Token (type: User Token).
+#   4. One-time: `brew install sonar-scanner` (macOS) - the frontend scan needs
+#      the scanner CLI; Maven already carries it for the backend via the
+#      sonar-maven-plugin declared in backend/pom.xml.
+#   5. Run a scan locally, e.g.:
+#        cd backend && mvn -B verify sonar:sonar -Dsonar.host.url=http://localhost:9000 -Dsonar.token=<token>
+#        cd frontend && npm run test:coverage && \
+#          sonar-scanner -Dsonar.host.url=http://localhost:9000 -Dsonar.token=<token>
 #
 # Community Edition only supports PostgreSQL as its own backing store - this is
 # unrelated to PLANNER_DB and must not be reused for app data.

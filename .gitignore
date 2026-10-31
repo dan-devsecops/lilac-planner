@@ -4,12 +4,15 @@ backend/.idea/
 backend/*.iml
 backend/.mvn/wrapper/maven-wrapper.jar
 backend/pom.xml.versionsBackup
+backend/.scannerwork/
 
 # Frontend
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/*.tsbuildinfo
+frontend/coverage/
+frontend/.scannerwork/
 
 # E2E
 e2e/node_modules/
