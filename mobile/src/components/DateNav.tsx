@@ -46,10 +46,11 @@ export function DateNav({ date, onNavigate }: Props) {
           value={current}
           mode="date"
           display="default"
-          onChange={(event, selected) => {
+          onValueChange={(_event, selected) => {
             setPickerOpen(false);
-            if (event.type === 'set' && selected) go(selected);
+            go(selected);
           }}
+          onDismiss={() => setPickerOpen(false)}
         />
       )}
     </View>
