@@ -19,7 +19,7 @@ import type { TaskDto } from '../api/types';
  * coarser `executionEnvironment`) is used deliberately: it's the only API that distinguishes
  * literal Expo Go from a dev-client build, and dev-client fully supports this on Android.
  */
-const disabledInExpoGoAndroid = Platform.OS === 'android' && Constants.appOwnership === AppOwnership.Expo;
+const disabledInExpoGoAndroid = Platform.OS === 'android' && Constants.appOwnership === AppOwnership.Expo; // NOSONAR - appOwnership is deprecated but is the only API that distinguishes Expo Go from a dev-client build, see comment above
 
 let notificationsModule: typeof import('expo-notifications') | null = null;
 let requireAttempted = false;
