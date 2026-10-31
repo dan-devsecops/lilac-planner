@@ -27,7 +27,7 @@ export function tokenPayload() {
   if (!token) return null;
   try {
     const payload = token.split('.')[1];
-    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    const json = atob(payload.replaceAll('-', '+').replaceAll('_', '/'));
     return JSON.parse(json);
   } catch {
     return null;
