@@ -10,17 +10,24 @@
 #
 # First-run setup (one-time, manual):
 #   1. Open http://localhost:9000, log in with admin/admin, set a new password.
-#   2. Create two projects with these exact keys (they must match
-#      `sonar.projectKey` in backend/pom.xml and frontend/sonar-project.properties):
-#      lilac-planner-backend, lilac-planner-frontend.
+#   2. Create three projects with these exact keys (they must match
+#      `sonar.projectKey` in backend/pom.xml, frontend/sonar-project.properties
+#      and mobile/sonar-project.properties):
+#      lilac-planner-backend, lilac-planner-frontend, lilac-planner-mobile.
 #   3. My Account → Security → Generate Token (type: User Token).
-#   4. One-time: `brew install sonar-scanner` (macOS) - the frontend scan needs
-#      the scanner CLI; Maven already carries it for the backend via the
+#   4. One-time: `brew install sonar-scanner` (macOS) - the frontend/mobile scans
+#      need the scanner CLI; Maven already carries it for the backend via the
 #      sonar-maven-plugin declared in backend/pom.xml.
-#   5. Run a scan locally, e.g.:
+#   5. Put the token where sonar-scan.sh (and the post-commit hook - see
+#      .githooks/README.md) will find it without a one-off `export`:
+#        cp .env.local.example .env.local   # fill in SONAR_TOKEN - sonar-scan.sh
+#                                            # reads it on every run, gitignored
+#   6. Run a scan locally: `SONAR_TOKEN=<token> ./sonar-scan.sh` (see its header
+#      comment for flags), or by hand:
 #        cd backend && mvn -B verify sonar:sonar -Dsonar.host.url=http://localhost:9000 -Dsonar.token=<token>
 #        cd frontend && npm run test:coverage && \
 #          sonar-scanner -Dsonar.host.url=http://localhost:9000 -Dsonar.token=<token>
+#        cd mobile && sonar-scanner -Dsonar.host.url=http://localhost:9000 -Dsonar.token=<token>
 #
 # Community Edition only supports PostgreSQL as its own backing store - this is
 # unrelated to PLANNER_DB and must not be reused for app data.

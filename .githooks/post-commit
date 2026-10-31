@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Kicks off ../sonar-scan.sh in the background after each commit, scanning only
+# the component(s) (backend/, frontend/, mobile/) touched by that commit. No-op
+# if SONAR_TOKEN isn't set or the local SonarQube instance isn't reachable - see
+# sonar-scan.sh. Runs detached so `git commit` returns immediately regardless of
+# how long the scan takes.
+# Enable once per clone: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+LOG="$ROOT/.git/sonar-scan.log"
+
+changed="$(git diff-tree --no-commit-id --name-only -r HEAD)"
+flags=()
+grep -q '^backend/' <<<"$changed" && flags+=(--backend)
+grep -q '^frontend/' <<<"$changed" && flags+=(--frontend)
+grep -q '^mobile/' <<<"$changed" && flags+=(--mobile)
+[ "${#flags[@]}" -eq 0 ] && exit 0
+
+nohup "$ROOT/sonar-scan.sh" "${flags[@]}" >"$LOG" 2>&1 &
+disown
+echo "post-commit: SonarQube scan started in background (log: $LOG)"
