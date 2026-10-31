@@ -14,7 +14,7 @@ import * as nativeAuth from '../auth/nativeAuth';
  * Same guard as alarms.ts, replicated rather than imported so this module doesn't create a
  * dependency alarms.ts doesn't otherwise need.
  */
-const disabledInExpoGoAndroid = Platform.OS === 'android' && Constants.appOwnership === AppOwnership.Expo;
+const disabledInExpoGoAndroid = Platform.OS === 'android' && Constants.appOwnership === AppOwnership.Expo; // NOSONAR - appOwnership is deprecated but is the only API that distinguishes Expo Go from a dev-client build, see comment above
 
 let notificationsModule: typeof import('expo-notifications') | null = null;
 let requireAttempted = false;
