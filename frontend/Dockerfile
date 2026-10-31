@@ -25,7 +25,8 @@ FROM nginxinc/nginx-unprivileged:alpine
 # Switch to root solely to fix ownership, then drop back - entrypoint.sh needs write
 # access to write config.js before nginx starts.
 USER root
-RUN chown 101:0 /usr/share/nginx/html
+RUN apk upgrade --no-cache \
+ && chown 101:0 /usr/share/nginx/html
 USER 101
 COPY --from=build --chown=101:0 /app/dist /usr/share/nginx/html
 
