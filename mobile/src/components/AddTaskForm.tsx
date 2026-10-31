@@ -114,17 +114,16 @@ export function AddTaskForm({ onSubmit }: Props) {
           value={new Date()}
           mode="time"
           display="default"
-          onChange={(event, selected) => {
+          onValueChange={(_event, selected) => {
             setTimePickerOpen(false);
-            if (event.type === 'set' && selected) {
-              const hh = String(selected.getHours()).padStart(2, '0');
-              const mm = String(selected.getMinutes()).padStart(2, '0');
-              setScheduledTime(`${hh}:${mm}:00`);
-              // Fired from the picker's "set" tap - a user gesture, so the OS permission prompt
-              // (first time only) won't be silently ignored.
-              ensureNotificationPermission();
-            }
+            const hh = String(selected.getHours()).padStart(2, '0');
+            const mm = String(selected.getMinutes()).padStart(2, '0');
+            setScheduledTime(`${hh}:${mm}:00`);
+            // Fired from the picker's value-change tap - a user gesture, so the OS permission
+            // prompt (first time only) won't be silently ignored.
+            ensureNotificationPermission();
           }}
+          onDismiss={() => setTimePickerOpen(false)}
         />
       )}
     </View>
