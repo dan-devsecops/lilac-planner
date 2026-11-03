@@ -56,10 +56,6 @@ class CrossUserIsolationIT {
         bobToken   = login("bob",   "password1");
     }
 
-    // -------------------------------------------------------------------------
-    // DayController - GET /api/v1/days/{date}
-    // -------------------------------------------------------------------------
-
     @Test
     @DisplayName("Bob sees an empty day even when Alice has tasks on the same date")
     void getDay_doesNotLeakAcrossUsers() throws Exception {
@@ -101,10 +97,6 @@ class CrossUserIsolationIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tasks[0].title").value("alice task"));
     }
-
-    // -------------------------------------------------------------------------
-    // TaskController - PATCH /api/v1/days/{date}/tasks/{taskId}
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("Bob cannot complete a task that belongs to Alice")
@@ -149,10 +141,6 @@ class CrossUserIsolationIT {
                                 """))
                 .andExpect(status().isNotFound());
     }
-
-    // -------------------------------------------------------------------------
-    // TaskController - DELETE /api/v1/days/{date}/tasks/{taskId}
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("Bob cannot delete a task that belongs to Alice")
