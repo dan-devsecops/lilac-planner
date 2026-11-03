@@ -6,15 +6,15 @@ import { useTheme } from '@/src/theme';
 import { todayStr } from '@/src/utils/dates';
 import { ensurePushRegistration } from '@/src/notifications/push';
 
-function TodayTabIcon({ color, size }: { color: ColorValue; size: number }) {
+function TodayTabIcon({ color, size }: Readonly<{ color: ColorValue; size: number }>) {
   return <Ionicons name="today-outline" size={size} color={color} />;
 }
 
-function StatisticsTabIcon({ color, size }: { color: ColorValue; size: number }) {
+function StatisticsTabIcon({ color, size }: Readonly<{ color: ColorValue; size: number }>) {
   return <Ionicons name="stats-chart-outline" size={size} color={color} />;
 }
 
-function AccountTabIcon({ color, size }: { color: ColorValue; size: number }) {
+function AccountTabIcon({ color, size }: Readonly<{ color: ColorValue; size: number }>) {
   return <Ionicons name="person-circle-outline" size={size} color={color} />;
 }
 
