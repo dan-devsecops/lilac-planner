@@ -87,17 +87,18 @@ export default function DayView() {
   // changed.
   const [midnightTick, setMidnightTick] = useState(0);
   useEffect(() => {
-    function scheduleNextMidnight() {
+    function msUntilMidnight() {
       const now = new Date();
       const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-      const msUntilMidnight = tomorrow - now;
-      return window.setTimeout(() => {
-        setMidnightTick((t) => t + 1);
-        scheduleNextMidnight();
-      }, msUntilMidnight);
+      return tomorrow - now;
     }
-    const id = scheduleNextMidnight();
-    return () => window.clearTimeout(id);
+    let timeoutId;
+    function tick() {
+      setMidnightTick((t) => t + 1);
+      timeoutId = window.setTimeout(tick, msUntilMidnight());
+    }
+    timeoutId = window.setTimeout(tick, msUntilMidnight());
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   const isToday = useMemo(() => date === format(new Date(), 'yyyy-MM-dd'), [date, midnightTick]);

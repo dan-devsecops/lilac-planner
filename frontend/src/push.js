@@ -68,8 +68,8 @@ export function subscriptionToPayload(subscription) {
   return {
     platform: 'WEB',
     token: json.endpoint,
-    p256dh: json.keys && json.keys.p256dh,
-    auth: json.keys && json.keys.auth,
+    p256dh: json.keys?.p256dh,
+    auth: json.keys?.auth,
   };
 }
 

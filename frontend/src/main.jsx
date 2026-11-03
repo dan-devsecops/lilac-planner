@@ -21,7 +21,8 @@ function render() {
 
 if (isKeycloak) {
   // SSO: redirect to Keycloak before the app renders.
-  keycloak.init({ onLoad: 'login-required', pkceMethod: 'S256' }).then(render);
+  await keycloak.init({ onLoad: 'login-required', pkceMethod: 'S256' });
+  render();
 } else {
   // native + none render immediately; native guards its own routes in App.
   render();

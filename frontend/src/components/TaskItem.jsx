@@ -149,16 +149,12 @@ export default function TaskItem({
             maxLength={200}
           />
         ) : (
-          <span
+          <button
+            type="button"
             className="title"
-            role="button"
-            tabIndex={0}
             title="Click to edit"
             onClick={() => setEditingTitle(true)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditingTitle(true); }
-            }}
-          >{task.title}</span>
+          >{task.title}</button>
         )}
         <div className="task-meta">
           {task.scheduledTime && (

@@ -358,6 +358,11 @@ input::placeholder { color: var(--text-muted); opacity: 0.75; }
 
 .task-item .title-cell { min-width: 0; }
 .task-item .title {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
@@ -403,8 +408,8 @@ input::placeholder { color: var(--text-muted); opacity: 0.75; }
   color: #9d174d;
 }
 :root[data-theme='dark'] .badge.time {
-  background: rgba(192, 132, 252, 0.18);
-  color: var(--lilac-300);
+  background: color-mix(in srgb, var(--lilac-800) 35%, transparent);
+  color: var(--lilac-200);
 }
 :root[data-theme='dark'] .badge.recurrence {
   background: rgba(244, 114, 182, 0.16);

@@ -8,7 +8,7 @@ const ACK_KEY = 'lilac-planner-acks-v1';
  * acked-keys in localStorage so reloads don't double-fire.
  */
 export function shouldFireNow(task, now = new Date()) {
-  if (!task || !task.scheduledTime || task.completed) return false;
+  if (!task?.scheduledTime || task.completed) return false;
   const [hh, mm] = String(task.scheduledTime).split(':').map(Number);
   if (Number.isNaN(hh) || Number.isNaN(mm)) return false;
   const target = new Date(now);
