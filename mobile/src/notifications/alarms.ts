@@ -106,6 +106,53 @@ async function cancelSafe(notifications: typeof import('expo-notifications'), no
   }
 }
 
+async function cancelRemovedTasks(
+  notifications: typeof import('expo-notifications'),
+  map: ScheduleMap,
+  date: string,
+  presentKeys: Set<string>,
+) {
+  for (const k of Object.keys(map)) {
+    if (k.startsWith(`${date}:`) && !presentKeys.has(k)) {
+      await cancelSafe(notifications, map[k].notificationId);
+      delete map[k];
+    }
+  }
+}
+
+async function reconcileTask(
+  notifications: typeof import('expo-notifications'),
+  map: ScheduleMap,
+  date: string,
+  task: TaskDto,
+  now: Date,
+) {
+  const k = key(date, task.id);
+  const trigger = !task.completed && task.scheduledTime ? targetDate(date, task.scheduledTime) : null;
+  const eligible = !!trigger && trigger.getTime() > now.getTime();
+
+  if (!eligible) {
+    if (map[k]) {
+      await cancelSafe(notifications, map[k].notificationId);
+      delete map[k];
+    }
+    return;
+  }
+
+  const sig = signature(task);
+  if (map[k]?.signature === sig) return;
+  if (map[k]) await cancelSafe(notifications, map[k].notificationId);
+
+  const notificationId = await notifications.scheduleNotificationAsync({
+    content: {
+      title: '🌸 Lilac Planner reminder',
+      body: `${task.title} (${task.points} pts)`,
+    },
+    trigger: { type: notifications.SchedulableTriggerInputTypes.DATE, date: trigger! },
+  });
+  map[k] = { notificationId, signature: sig };
+}
+
 /**
  * Reconciles one day's scheduled reminders against its current task list: cancels notifications
  * for tasks that were deleted, completed, lost their scheduledTime, or whose time already passed;
@@ -120,38 +167,9 @@ export async function reconcileDayNotifications(date: string, tasks: TaskDto[]) 
   const now = new Date();
   const presentKeys = new Set(tasks.map((t) => key(date, t.id)));
 
-  for (const k of Object.keys(map)) {
-    if (k.startsWith(`${date}:`) && !presentKeys.has(k)) {
-      await cancelSafe(Notifications, map[k].notificationId);
-      delete map[k];
-    }
-  }
-
+  await cancelRemovedTasks(Notifications, map, date, presentKeys);
   for (const task of tasks) {
-    const k = key(date, task.id);
-    const trigger = !task.completed && task.scheduledTime ? targetDate(date, task.scheduledTime) : null;
-    const eligible = !!trigger && trigger.getTime() > now.getTime();
-
-    if (!eligible) {
-      if (map[k]) {
-        await cancelSafe(Notifications, map[k].notificationId);
-        delete map[k];
-      }
-      continue;
-    }
-
-    const sig = signature(task);
-    if (map[k]?.signature === sig) continue;
-    if (map[k]) await cancelSafe(Notifications, map[k].notificationId);
-
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '🌸 Lilac Planner reminder',
-        body: `${task.title} (${task.points} pts)`,
-      },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: trigger! },
-    });
-    map[k] = { notificationId, signature: sig };
+    await reconcileTask(Notifications, map, date, task, now);
   }
 
   await saveMap(map);
