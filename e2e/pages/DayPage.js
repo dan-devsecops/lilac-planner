@@ -30,7 +30,7 @@ export class DayPage {
       await this.page.selectOption('select[title="Recurrence"]', recurrence);
     }
     await this.page.click('button[type="submit"]');
-    await this.page.waitForSelector(`span.title:text("${title}")`);
+    await this.page.waitForSelector(`button.title:text("${title}")`);
   }
 
   // Returns a locator scoped to the task row matching the given title.
@@ -50,13 +50,13 @@ export class DayPage {
   }
 
   async editTaskTitle(oldTitle, newTitle) {
-    // Locate the span directly - task filter breaks once the span is replaced by an input
+    // Locate the button directly - task filter breaks once it's replaced by an input
     // because input values don't appear in textContent.
-    await this.page.locator('span.title', { hasText: oldTitle }).click();
+    await this.page.locator('button.title', { hasText: oldTitle }).click();
     const input = this.page.locator('input.title-input');
     await input.fill(newTitle);
     await input.press('Enter');
-    await this.page.waitForSelector(`span.title:text("${newTitle}")`);
+    await this.page.waitForSelector(`button.title:text("${newTitle}")`);
   }
 
   async editTaskPoints(title, newPoints) {
