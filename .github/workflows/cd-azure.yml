@@ -150,6 +150,36 @@ jobs:
           LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
         run: envsubst '$LETSENCRYPT_EMAIL' < deploy/azure/cluster-issuer.yaml | kubectl apply -f -
 
+      - name: Resolve INGRESS_HOST (nip.io from the LB IP, unless overridden)
+        run: |
+          set -euo pipefail
+          if [ -n "${{ vars.INGRESS_HOST }}" ]; then
+            echo "INGRESS_HOST=${{ vars.INGRESS_HOST }}" >> "$GITHUB_ENV"
+            echo "Using the configured INGRESS_HOST variable: ${{ vars.INGRESS_HOST }}"
+            exit 0
+          fi
+
+          # No INGRESS_HOST variable set - this cluster gets torn down/recreated
+          # for testing, so the LB IP (and therefore the nip.io hostname) changes
+          # every time. Derive it fresh from the Load Balancer instead of relying
+          # on a GitHub variable someone has to remember to update (same pattern
+          # as cd-doks.yml).
+          echo "No INGRESS_HOST variable set - deriving one from the ingress-nginx LB IP..."
+          LB_IP=""
+          for i in $(seq 1 30); do
+            LB_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            [ -n "$LB_IP" ] && break
+            sleep 10
+          done
+          if [ -z "$LB_IP" ]; then
+            echo "Timed out waiting for the ingress-nginx LoadBalancer to get an external IP." >&2
+            exit 1
+          fi
+
+          echo "INGRESS_HOST=planner.${LB_IP}.nip.io" >> "$GITHUB_ENV"
+          echo "Derived INGRESS_HOST=planner.${LB_IP}.nip.io from LB IP $LB_IP"
+
       - name: Install/upgrade ArgoCD (idempotent)
         run: |
           set -euo pipefail
@@ -186,7 +216,6 @@ jobs:
       - name: Render Azure deploy manifests and push to main
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
-          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
           ADMIN_USERNAME: ${{ vars.ADMIN_USERNAME }}
           ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
           KEYVAULT_NAME: ${{ vars.KEYVAULT_NAME }}
@@ -253,8 +282,6 @@ jobs:
           kubectl rollout status deployment/lilac-azure-lilac-planner-frontend -n lilac-planner --timeout=180s
 
       - name: Public smoke check
-        env:
-          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
         run: |
           set -euo pipefail
           echo "Checking https://$INGRESS_HOST from outside..."
