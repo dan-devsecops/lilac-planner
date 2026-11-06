@@ -124,8 +124,11 @@ jobs:
           # ArgoCD, after the render-and-push step.
           helm repo add external-secrets https://charts.external-secrets.io
           helm repo update
+          # --force: same aks-webhook-admission-controller field-conflict
+          # risk as ingress-nginx/cert-manager below (this chart owns
+          # secretstore-validate/externalsecret-validate webhooks).
           helm upgrade --install external-secrets external-secrets/external-secrets \
-            -n external-secrets --create-namespace --wait --timeout 5m
+            -n external-secrets --create-namespace --wait --timeout 5m --force
 
       - name: Install/upgrade ingress-nginx + cert-manager (idempotent)
         run: |
@@ -139,11 +142,24 @@ jobs:
           # only accepts 200 as healthy - which silently drops ALL external
           # traffic even though everything internal still works. Local makes
           # Azure probe a dedicated kube-proxy health port instead.
+          # --force: same aks-webhook-admission-controller field-conflict
+          # risk as cert-manager below (this chart also owns a
+          # ValidatingWebhookConfiguration) - added preemptively here even
+          # though it hasn't bitten this one yet.
           helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
             -n ingress-nginx --create-namespace --wait --timeout 5m \
-            --set controller.service.externalTrafficPolicy=Local
+            --set controller.service.externalTrafficPolicy=Local --force
+          # --force: AKS's built-in aks-webhook-admission-controller
+          # asynchronously claims namespaceSelector on every webhook in the
+          # cluster (field manager "admissionsenforcer") shortly after this
+          # chart's ValidatingWebhookConfiguration/MutatingWebhookConfiguration
+          # first get created - so the FIRST install succeeds (plain create,
+          # nothing to conflict with yet) but every subsequent upgrade fails
+          # with a field-ownership conflict on an update. --force makes Helm
+          # delete+recreate instead of patch when that happens - safe here,
+          # these are stateless control objects, not data.
           helm upgrade --install cert-manager jetstack/cert-manager \
-            -n cert-manager --create-namespace --set crds.enabled=true --wait --timeout 5m
+            -n cert-manager --create-namespace --set crds.enabled=true --wait --timeout 5m --force
 
       - name: Apply ClusterIssuer
         env:
