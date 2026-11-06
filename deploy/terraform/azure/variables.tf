@@ -107,8 +107,21 @@ variable "github_repository" {
 
 variable "github_oidc_subject" {
   description = <<-EOT
-    Exact OIDC subject GitHub issues for a push to main. Empty ->
-    falls back to the name-based format.
+    Exact OIDC subject GitHub issues for a job with no `environment:` set
+    (e.g. cd-azure.yml's "build" job). Empty -> falls back to the
+    name-based format.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "github_oidc_environment_subject" {
+  description = <<-EOT
+    Same idea as github_oidc_subject, but for a job that sets
+    `environment: production` (cd-azure.yml's "deploy" job) - GitHub issues
+    a different claim shape there ("...:environment:production" instead of
+    "...:ref:refs/heads/main"), needing its own federated credential. Empty
+    -> falls back to the name-based format.
   EOT
   type        = string
   default     = ""
