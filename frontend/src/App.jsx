@@ -50,7 +50,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🌸 Lilac Planner</h1>
+        <h1>🌸 Lilac Planner (Azure test)</h1>
         <div className="app-header-right">
           <nav className="nav">
             <NavLink to={`/day/${today}`} className={({ isActive }) => isActive ? 'active' : ''}>
