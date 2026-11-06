@@ -99,15 +99,15 @@ variable "db_version" {
 }
 
 variable "db_size" {
-  description = "Managed DB node size slug. db-s-1vcpu-1gb is single-node ONLY - DO rejects db_node_count=2 on it with a 422 'invalid layout and size combination'. If you set db_node_count=2, bump this to at least db-s-1vcpu-2gb ($30.45/node/mo vs $15.15) - check doctl databases options slugs --engine pg -o json for which sizes support which node counts before changing either."
+  description = "Managed DB node size slug. Defaults to db-s-1vcpu-2gb because db_node_count defaults to 2 (HA) below, and db-s-1vcpu-1gb is single-node ONLY - DO rejects db_node_count=2 on it with a 422 'invalid layout and size combination'. If you deliberately drop to db_node_count=1 to save cost, you can downsize this to db-s-1vcpu-1gb ($15.15/mo vs $30.45/node/mo) - check doctl databases options slugs --engine pg -o json for which sizes support which node counts before changing either."
   type        = string
-  default     = "db-s-1vcpu-1gb"
+  default     = "db-s-1vcpu-2gb"
 }
 
 variable "db_node_count" {
-  description = "1 = single node. 2 = primary + standby (HA) - requires db_size to be at least db-s-1vcpu-2gb, see db_size above. Not just 2x the single-node price: the per-node price also goes up with the required size bump (~$61/mo total, not ~$30)."
+  description = "1 = single node, no HA. 2 = primary + standby (HA), the default - requires db_size to be at least db-s-1vcpu-2gb, see db_size above. Defaulting to 2 so a bare apply (or an accidentally-reset tfvars) doesn't silently deploy without HA. Not just 2x the single-node price: the per-node price also goes up with the required size bump (~$61/mo total, not ~$30)."
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "db_name" {
