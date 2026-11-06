@@ -283,10 +283,21 @@ jobs:
           # Secrets first - lilac-azure's pods need lilac-db/lilac-auth to
           # already exist, or they sit in ContainerCreating until ESO catches
           # up on its own refreshInterval instead of right away.
-          argocd app sync lilac-azure-secrets --core --timeout 300
+          #
+          # `|| true` on each sync: both Applications have automated
+          # selfHeal, so ArgoCD's own controller can already be mid-sync
+          # (reacting to the git push above) the instant this CLI call
+          # fires, which fails it with "another operation is already in
+          # progress" even though that in-flight sync succeeds moments
+          # later. The explicit sync call still matters for a from-scratch
+          # Application with nothing to react to yet - only tolerate the
+          # race, don't skip the call. `app wait --health` is the real gate
+          # either way: it blocks on the actual end state regardless of
+          # which sync (ours or the automated one) got there first.
+          argocd app sync lilac-azure-secrets --core --timeout 300 || true
           argocd app wait lilac-azure-secrets --core --health --timeout 300
 
-          argocd app sync lilac-azure --core --timeout 300
+          argocd app sync lilac-azure --core --timeout 300 || true
           argocd app wait lilac-azure --core --health --timeout 300
 
       - name: Verify rollout
