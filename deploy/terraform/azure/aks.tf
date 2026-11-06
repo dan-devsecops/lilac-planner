@@ -23,6 +23,15 @@ resource "azurerm_kubernetes_cluster" "this" {
     node_count     = var.node_count
     vm_size        = var.node_vm_size
     vnet_subnet_id = azurerm_subnet.aks.id
+
+    # Declared explicitly, not left to the provider default: Azure's API
+    # always returns this block (defaulting max_surge to "10%") whether or
+    # not it's in config - omitting it here just means every `terraform
+    # plan`/`apply` perpetually "wants" to null it back out, which Azure
+    # never actually honors. Matching the real default stops the drift.
+    upgrade_settings {
+      max_surge = "10%"
+    }
   }
 
   identity {
