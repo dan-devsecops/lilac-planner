@@ -25,7 +25,8 @@ resource "azurerm_postgresql_flexible_server" "this" {
   private_dns_zone_id           = azurerm_private_dns_zone.postgres.id
   public_network_access_enabled = false
 
-  storage_mb = var.postgres_storage_mb
+  storage_mb        = var.postgres_storage_mb
+  auto_grow_enabled = var.postgres_auto_grow_enabled
 
   # Zone-redundant HA: a synchronous standby in a second AZ, automatic failover.
   # Requires a General Purpose or Memory Optimized SKU (not Burstable).
@@ -34,8 +35,9 @@ resource "azurerm_postgresql_flexible_server" "this" {
     standby_availability_zone = "2"
   }
 
-  backup_retention_days = 7
-  tags                  = var.tags
+  backup_retention_days        = 7
+  geo_redundant_backup_enabled = var.postgres_geo_redundant_backup_enabled
+  tags                         = var.tags
 
   depends_on = [azurerm_private_dns_zone_virtual_network_link.postgres]
 }

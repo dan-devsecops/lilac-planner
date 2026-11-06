@@ -57,6 +57,18 @@ variable "postgres_storage_mb" {
   default     = 32768
 }
 
+variable "postgres_auto_grow_enabled" {
+  description = "Automatically grow storage when nearing capacity, instead of the server going read-only on a full disk."
+  type        = bool
+  default     = true
+}
+
+variable "postgres_geo_redundant_backup_enabled" {
+  description = "Replicate backups to the Azure paired region, so a region-wide outage (not just an AZ failure, which zone-redundant HA already covers) is still recoverable. ForceNew: changing this on an existing server requires recreation."
+  type        = bool
+  default     = true
+}
+
 variable "db_name" {
   description = "Primary application database name."
   type        = string
