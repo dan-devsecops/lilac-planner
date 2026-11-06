@@ -49,6 +49,11 @@ variable "postgres_sku" {
   description = "Flexible Server SKU. Must be a General Purpose (GP_*) or Memory Optimized (MO_*) tier - Burstable (B_*) does not support zone-redundant HA."
   type        = string
   default     = "GP_Standard_D2s_v3"
+
+  validation {
+    condition     = can(regex("^(GP_|MO_)", var.postgres_sku))
+    error_message = "postgres_sku must be a General Purpose (GP_*) or Memory Optimized (MO_*) tier - Burstable (B_*) does not support the zone-redundant HA configured in database.tf."
+  }
 }
 
 variable "postgres_storage_mb" {

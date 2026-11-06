@@ -9,6 +9,13 @@ resource "digitalocean_database_cluster" "postgres" {
   node_count           = var.db_node_count
   private_network_uuid = digitalocean_vpc.this.id
   tags                 = ["lilac-planner", "terraform"]
+
+  lifecycle {
+    precondition {
+      condition     = var.db_node_count == 1 || var.db_size != "db-s-1vcpu-1gb"
+      error_message = "db_node_count=2 requires db_size to be at least db-s-1vcpu-2gb - DO rejects a 2-node layout on db-s-1vcpu-1gb with a 422 'invalid layout and size combination'."
+    }
+  }
 }
 
 resource "digitalocean_database_db" "app" {
