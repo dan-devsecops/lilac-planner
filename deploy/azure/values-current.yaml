@@ -14,7 +14,7 @@ image:
 
 backend:
   image:
-    tag: "1ce08c8e4e52"
+    tag: "8daeae055991"
   corsAllowedOrigins: "https://planner.20.15.195.121.nip.io"
   # Azure Database for MySQL Flexible Server is actual MySQL, not MariaDB
   # (Azure retired managed MariaDB) - the mariadb profile's migrations aren't
@@ -24,7 +24,7 @@ backend:
 
 frontend:
   image:
-    tag: "1ce08c8e4e52"
+    tag: "8daeae055991"
 
 db:
   mode: external
