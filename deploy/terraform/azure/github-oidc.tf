@@ -48,13 +48,19 @@ resource "azurerm_role_assignment" "github_acr_push" {
   principal_id         = azuread_service_principal.github[0].object_id
 }
 
-# Grant the pipeline permission to deploy workloads without full cluster
-# administration.  "Azure Kubernetes Service RBAC Admin" scoped to the resource
-# group lets it manage deployments, services, secrets, and namespaces without
-# being able to modify cluster-level resources (nodes, ClusterRoles, etc.).
+# Grant the pipeline permission to fetch an admin kubeconfig. Must be
+# "Azure Kubernetes Service Cluster Admin Role" (grants the ARM action
+# listClusterAdminCredential) - NOT "...RBAC Admin" (grants
+# listClusterUserCredential, a Kubernetes-API-level authorization role that
+# only matters if Azure AD RBAC is enabled on the cluster). This cluster uses
+# local accounts and cd-azure.yml calls `az aks get-credentials --admin`, so
+# RBAC Admin silently grants nothing usable for that call - the two role
+# names differ by one word and are easy to conflate.
 #
-# Trade-off: this role still covers every namespace in the cluster.  To narrow
-# it to just the "lilac" namespace, enable Azure AD RBAC on the cluster (add an
+# Trade-off: this role has no namespace scoping at all (narrower than even
+# the old RBAC Admin role was) - it's cluster-wide by nature, since admin
+# credentials bypass Kubernetes RBAC entirely. To scope this down, enable
+# Azure AD RBAC on the cluster (add an
 # azure_active_directory_role_based_access_control block in aks.tf), then:
 #   1. Replace this with "Azure Kubernetes Service RBAC Writer" scoped to the
 #      namespace resource path:
@@ -64,7 +70,7 @@ resource "azurerm_role_assignment" "github_acr_push" {
 resource "azurerm_role_assignment" "github_aks" {
   count                = var.enable_github_oidc ? 1 : 0
   scope                = azurerm_resource_group.this.id
-  role_definition_name = "Azure Kubernetes Service RBAC Admin"
+  role_definition_name = "Azure Kubernetes Service Cluster Admin Role"
   principal_id         = azuread_service_principal.github[0].object_id
 }
 
