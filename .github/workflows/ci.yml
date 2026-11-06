@@ -183,7 +183,12 @@ jobs:
 
   e2e:
     name: E2E · browser flows on an isolated stack
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: GitHub's "latest" image moved to 26.04 ahead
+    # of Playwright's own OS support list, so `playwright install --with-deps`
+    # hard-fails ("does not support chromium on ubuntu26.04-x64") on a
+    # version Playwright hasn't added apt package mappings for yet.
+    # ubuntu-24.04 is an LTS Playwright 1.60.x does support.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
