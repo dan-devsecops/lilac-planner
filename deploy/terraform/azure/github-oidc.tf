@@ -52,9 +52,3 @@ resource "azurerm_role_assignment" "github_aks" {
   principal_id         = azuread_service_principal.github[0].object_id
 }
 
-resource "azurerm_role_assignment" "github_kv_read" {
-  count                = var.enable_github_oidc ? 1 : 0
-  scope                = azurerm_key_vault.this.id
-  role_definition_name = "Key Vault Secrets User"
-  principal_id         = azuread_service_principal.github[0].object_id
-}

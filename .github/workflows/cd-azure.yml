@@ -112,28 +112,20 @@ jobs:
       - name: Ensure namespace
         run: kubectl create namespace lilac-planner --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Sync DB + auth secrets from Key Vault
+      - name: Install/upgrade External Secrets Operator (idempotent)
         run: |
           set -euo pipefail
-          KV="${{ vars.KEYVAULT_NAME }}"
-
-          # Key names are PG_* to match backend.plannerDb=postgres in
-          # values-overlay.yaml.tmpl (see _helpers.tpl's db.*EnvName helpers).
-          kubectl create secret generic lilac-db \
-            --from-literal=PG_USER="$(az keyvault secret show --vault-name "$KV" -n pg-user --query value -o tsv)" \
-            --from-literal=PG_PASSWORD="$(az keyvault secret show --vault-name "$KV" -n pg-password --query value -o tsv)" \
-            --from-literal=PG_URL="$(az keyvault secret show --vault-name "$KV" -n pg-url --query value -o tsv)" \
-            --namespace lilac-planner \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-          # PLANNER_ADMIN_PASSWORD is harmless if auth.native.admin.username
-          # is left blank (values-overlay.yaml.tmpl) - the chart only reads it
-          # when bootstrapping the admin.
-          kubectl create secret generic lilac-auth \
-            --from-literal=PLANNER_JWT_SECRET="$(az keyvault secret show --vault-name "$KV" -n native-jwt-secret --query value -o tsv)" \
-            --from-literal=PLANNER_ADMIN_PASSWORD="$(az keyvault secret show --vault-name "$KV" -n native-admin-password --query value -o tsv)" \
-            --namespace lilac-planner \
-            --dry-run=client -o yaml | kubectl apply -f -
+          # Replaces the old imperative "kubectl create secret ... from Key
+          # Vault" step - lilac-db/lilac-auth are now ExternalSecret resources
+          # (deploy/azure/external-secrets.yaml.tmpl), git-declared and
+          # continuously reconciled by ArgoCD's "lilac-azure-secrets"
+          # Application, not a one-shot CI action. This step only installs
+          # the operator + its CRDs; the actual secrets are synced below via
+          # ArgoCD, after the render-and-push step.
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            -n external-secrets --create-namespace --wait --timeout 5m
 
       - name: Install/upgrade ingress-nginx + cert-manager (idempotent)
         run: |
@@ -191,27 +183,35 @@ jobs:
           ref: main
           path: main-checkout
 
-      - name: Render Azure values-current.yaml and push to main
+      - name: Render Azure deploy manifests and push to main
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
           INGRESS_HOST: ${{ vars.INGRESS_HOST }}
           ADMIN_USERNAME: ${{ vars.ADMIN_USERNAME }}
           ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
+          KEYVAULT_NAME: ${{ vars.KEYVAULT_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ESO_CLIENT_ID: ${{ vars.ESO_CLIENT_ID }}
         run: |
           set -euo pipefail
-          # Lands on main, not a separate gitops/azure branch: ArgoCD's Application
-          # is single-source (see argocd-app.yaml.tmpl's comment) - both value
-          # layers have to live on the same revision it syncs from. [skip ci]
+          # Lands on main, not a separate gitops/azure branch: ArgoCD's Applications
+          # are single-source (see argocd-app.yaml.tmpl's comment) - every value/manifest
+          # layer has to live on the same revision they sync from. [skip ci]
           # keeps this from triggering a pointless ci.yml run; cd-azure.yml itself
           # is workflow_dispatch-only, so this can't cascade into another deploy.
           envsubst '$ACR_LOGIN_SERVER $DEPLOY_TAG $INGRESS_HOST $ADMIN_USERNAME $ADMIN_EMAIL' \
             < deploy/azure/values-overlay.yaml.tmpl > main-checkout/deploy/azure/values-current.yaml
+
+          mkdir -p main-checkout/deploy/azure/external-secrets
+          envsubst '$ESO_CLIENT_ID $KEYVAULT_NAME $AZURE_TENANT_ID' \
+            < deploy/azure/external-secrets.yaml.tmpl > main-checkout/deploy/azure/external-secrets/external-secrets-current.yaml
+
           cd main-checkout
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add deploy/azure/values-current.yaml
+          git add deploy/azure/values-current.yaml deploy/azure/external-secrets/external-secrets-current.yaml
           if git diff --cached --quiet; then
-            echo "values-current.yaml unchanged - skipping commit"
+            echo "deploy manifests unchanged - skipping commit"
           else
             git commit -m "[skip ci] deploy $DEPLOY_TAG"
             git push origin main
@@ -234,6 +234,13 @@ jobs:
           # get-credentials defaults that to "default", so set it explicitly.
           kubectl config set-context --current --namespace=argocd
           argocd login --core
+
+          # Secrets first - lilac-azure's pods need lilac-db/lilac-auth to
+          # already exist, or they sit in ContainerCreating until ESO catches
+          # up on its own refreshInterval instead of right away.
+          argocd app sync lilac-azure-secrets --core --timeout 300
+          argocd app wait lilac-azure-secrets --core --health --timeout 300
+
           argocd app sync lilac-azure --core --timeout 300
           argocd app wait lilac-azure --core --health --timeout 300
 

@@ -24,6 +24,11 @@ output "key_vault_name" {
   value = azurerm_key_vault.this.name
 }
 
+output "eso_client_id" {
+  description = "-> GitHub variable ESO_CLIENT_ID. Not sensitive - same reasoning as github_actions_client_id: it's a public identifier, the federated credential is what actually gates access."
+  value       = azurerm_user_assigned_identity.eso.client_id
+}
+
 output "postgres_fqdn" {
   value = azurerm_postgresql_flexible_server.this.fqdn
 }

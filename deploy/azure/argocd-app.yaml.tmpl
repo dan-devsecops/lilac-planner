@@ -58,3 +58,30 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+---
+# Separate from the Application above on purpose: this one owns the
+# ServiceAccount/SecretStore/ExternalSecret trio (deploy/azure/external-secrets.yaml.tmpl),
+# the lilac-azure app ships no cloud-provider-specific manifests itself
+# (Helm chart stays cloud-agnostic - see deploy/helm/lilac-planner's own
+# README). cd-azure.yml syncs this Application first so lilac-db/lilac-auth
+# already exist by the time lilac-azure's pods start.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lilac-azure-secrets
+  namespace: argocd
+spec:
+  project: lilac-planner
+  source:
+    repoURL: "${REPO_URL}"
+    targetRevision: main
+    path: deploy/azure/external-secrets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lilac-planner
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
