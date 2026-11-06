@@ -22,7 +22,7 @@ resource "azuread_application_federated_identity_credential" "main" {
   description    = "GitHub Actions deploy from main"
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "repo:${var.github_repository}:ref:refs/heads/main"
+  subject        = var.github_oidc_subject != "" ? var.github_oidc_subject : "repo:${var.github_repository}:ref:refs/heads/main"
 }
 
 resource "azurerm_role_assignment" "github_acr_push" {

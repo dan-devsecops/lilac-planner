@@ -104,3 +104,12 @@ variable "github_repository" {
   type        = string
   default     = ""
 }
+
+variable "github_oidc_subject" {
+  description = <<-EOT
+    Exact OIDC subject GitHub issues for a push to main. Empty ->
+    falls back to the name-based format.
+  EOT
+  type        = string
+  default     = ""
+}
